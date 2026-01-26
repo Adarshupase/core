@@ -1,0 +1,14 @@
+c_parser 
+*.o 
+*.out 
+
+build/
+
+tree-sitter/
+tree-sitter-c/
+tree-sitter-json/
+
+*.swp 
+*.tmp
+.vscode/
+
