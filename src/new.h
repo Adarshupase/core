@@ -17,6 +17,7 @@ void debug_tree(TSNode root_node, const char *source);
 void change_field_in_struct(char *modified, TSNode node, const char *from,
                              const char *to,TSInputEdit *edit);
 void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
+TSNode find_identifier_node(TSNode node);
 TSNode find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
 
 #endif // __NEW_H

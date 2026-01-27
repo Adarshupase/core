@@ -73,7 +73,7 @@ void traverse_and_debug(TSNode node, int nest, const char *source )
                  printf("%s\n", string);
             }
         }
-        
+        free(string);
         
         traverse_and_debug(child,nest + 1, source);
     }
@@ -90,29 +90,13 @@ void change_field_in_struct(char *modified,
                             const char *to,
                             TSInputEdit *edit)
 {
-    TSNode fields;
-    const char *intended_child = "field_declaration_list";
-    for(u32 i = 0; i < ts_node_child_count(node); i++){
-        TSNode child = ts_node_child(node,i);
-        if(strcmp(intended_child,ts_node_type(child))==0){
-            fields = child;
-            break;
-        }
-    }
-    if(VERBOSE){
-        printf("ENTER THE CHILD PRINTER");
-        for(u32 i = 0; i < ts_node_child_count(fields); i++) {
-            char *string = ts_node_string(ts_node_child(fields,i));
-            printf("%s\n", string);
-            free(string);
-        }
-    }
-
-
-    const char *query_string = "(field_declaration type: (primitive_type) declarator: (field_identifier) @name)";
-    // const char *query_string ="(field_declaration type: (primitive_type) declarator: (_) (field_identifier) @name)";
-
     
+
+    // let's just support 4 pointer because if you are using 5 pointer indirection 
+    // this refactoring engine is no help to you sorry for that
+    //@TODO(write a query generator that handles any number of pointers) NOT_URGENT
+    const char *query_string = "(field_declaration) @field";
+
     // @TODO(make this as a macro or a function ) my code is already breaking i don't want to add more uncertainity
     TSQueryError error_type; u32 error_offset;
 
@@ -125,17 +109,14 @@ void change_field_in_struct(char *modified,
     );
 
     TSQueryCursor *cursor = ts_query_cursor_new();
-    ts_query_cursor_exec(cursor, query, fields);
-    
     TSQueryMatch match;
+
+    ts_query_cursor_exec(cursor, query, node);
     while(ts_query_cursor_next_match(cursor, &match)){
         TSNode name_node = {0};
         for(u32 i = 0; i < match.capture_count; i++) {
-            u32 length;
-            const char *captured_name = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
-            if(strcmp(captured_name,"name")==0){
-                name_node = match.captures[i].node;
-            }
+            TSNode node = match.captures[i].node;
+            name_node = find_identifier_node(node);
         }
         if(!ts_node_is_null(name_node)){
             u32 start_byte = ts_node_start_byte(name_node);
@@ -158,10 +139,13 @@ void change_field_in_struct(char *modified,
                 edit->new_end_byte = start_byte+ new_slice_size;
                 edit->start_point = ts_node_start_point(name_node);
                 edit->old_end_point = ts_node_end_point(name_node);
+                TSPoint start = ts_node_start_point(name_node);
+
                 edit->new_end_point = (TSPoint){
-                    .row = ts_node_end_point(name_node).row,
-                    .column = ts_node_end_point(name_node).column + new_slice_size - slice_size
+                    .row = start.row,
+                    .column = start.column + new_slice_size
                 };
+
                 break;
             } 
         }
@@ -170,6 +154,25 @@ void change_field_in_struct(char *modified,
     ts_query_delete(query); 
 
 }
+
+TSNode find_identifier_node(TSNode node)
+{
+    for (u32 i = 0; i < ts_node_child_count(node); i++) {
+        TSNode child = ts_node_child(node, i);
+
+        if (strcmp(ts_node_type(child), "field_identifier") == 0) {
+            return child;
+        }
+
+        TSNode result = find_identifier_node(child);
+        if (!ts_node_is_null(result)) {
+            return result;
+        }
+    }
+
+    return (TSNode){0};
+}
+
 TSNode find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
 { 
     const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct"; 
@@ -226,6 +229,7 @@ void change_struct_field(const char *struct_name,
         return;
     }
     char *modified_source = malloc(strlen(info->source_code) + 1);
+
     strcpy(modified_source,info->source_code);
     TSInputEdit edit = {0};
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
@@ -268,8 +272,8 @@ int main(int argc, char *argv[])
 {
     TSParser *parser = ts_parser_new();
     ts_parser_set_language(parser, tree_sitter_c());
-    const char *source_code = "struct Mutton {}; struct Halwa {int time_taken; char nmae; };";
-    const char *query_string = "(binary_expression (number_literal)(number_literal)) @bin";
+    const char *source_code = "struct Mutton {}; struct Halwa {int time_taken; char *nmae; };";
+    const char *query_string = "(field_declaration) @field";
     
     if(argc > 1) {
         source_code = read_entire_file(argv[1]);
@@ -317,7 +321,6 @@ int main(int argc, char *argv[])
     const TSLanguage *language = tree_sitter_c();
 
 
-
     u32 error_offset ;
     TSQueryError error_type;
     TSQuery *query = ts_query_new(
@@ -328,33 +331,40 @@ int main(int argc, char *argv[])
         &error_type
     );
     TSQueryCursor *query_cursor = ts_query_cursor_new();
-
-    ts_query_cursor_exec(query_cursor,query,root_node);
+    TSNode struct_node = find_struct_with_name(info.source_code, "Halwa", root_node);
+    
+    ts_query_cursor_exec(query_cursor,query,struct_node);
     TSQueryMatch match;
     while(ts_query_cursor_next_match(query_cursor,&match)){
         for(u32 i= 0 ; i < match.capture_count; i++) {
             TSNode node = match.captures[i].node;
-            char *node_string = ts_node_string(node);
-            // printf("matched node: %s\n",node_string);
-            free(node_string);
+            TSNode name_node = find_identifier_node(node);
+            if(!ts_node_is_null(name_node)){
+                u32 start_byte = ts_node_start_byte(name_node);
+                u32 end_byte   = ts_node_end_byte(name_node);
+                int slice_size = end_byte - start_byte;
+                char *string = strndup(info.source_code + start_byte, slice_size);
+                // printf("%s", string);
+                free(string);
+            }
         }
     }
-    const char *name = "Halwa";
-    const char *from = "time_taken";
-    const char *to   = "duration";
-
+    
     printf("----------------------------DEBUG_INFO--------------------------------------------------\n");
     printf("____________________________BEFORE-CHANGE________________________________________________\n");
     
     debug_tree(root_node,info.source_code);
-    change_struct_field(name, from, to, &info);
-    change_struct_field("Halwa","nmae", "name",&info);
+    change_struct_field("Halwa","a","c",&info);
+    change_struct_field("Halwa","c","d",&info);
 
     root_node = ts_tree_root_node(info.tree);
     printf("____________________________AFTER-CHANGE________________________________________________\n");
     debug_tree(root_node, info.source_code);
+    
+    
     free(node_string);
     ts_query_delete(query);
+    ts_tree_cursor_delete(&tree_cursor);
     ts_query_cursor_delete(query_cursor);
     ts_cleanup(&info);
 
