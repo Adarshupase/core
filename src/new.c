@@ -57,7 +57,7 @@ void print_tree_with_cursor(TSTreeCursor *tree_cursor)
 }
 
 
-// @UNIMPLEMENTED()
+// @UNIMPLEMENTED() this should print tree nodes with their names so i can verify if the tree has indeed changed
 void debug_tree(TSNode root_node) 
 {
     
