@@ -1,31 +1,16 @@
 #define _GNU_SOURCE
-#include <tree_sitter/api.h> 
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include "new.h"
 
 typedef uint32_t u32;
 #define CURSOR_MODE 0
 #define VERBOSE 0
+#define DEBUG_VERBOSE 1
 
-
-typedef struct {
-    TSTree *tree;
-    const char *source_code;
-    TSParser *parser;
-} TSTreeInfo;
 
 // definitions 
-void traverse(TSNode root_node,int nest);
-void print_tree(TSNode root_node);
-void print_tree_with_cursor(TSTreeCursor *tree_cursor);
-void traverse_and_debug(TSNode node, int nest, const char *source );
-void debug_tree(TSNode root_node, const char *source);
-void change_field_in_struct(char *modified, TSNode node, const char *from,
-                             const char *to,TSInputEdit *edit);
-void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
-TSNode find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
-
 const TSLanguage *tree_sitter_c(void);
 
 void traverse(TSNode root_node, int nest)
@@ -42,11 +27,13 @@ void traverse(TSNode root_node, int nest)
     }
 }
 
-
+// recursivery print tree with identation 
 void print_tree(TSNode root_node) 
 {
     traverse(root_node, 0);
 }
+
+// print tree using cursor 
 void print_tree_with_cursor(TSTreeCursor *tree_cursor) 
 {
      do {
@@ -61,6 +48,9 @@ void print_tree_with_cursor(TSTreeCursor *tree_cursor)
     } while(ts_tree_cursor_goto_next_sibling(tree_cursor));
 }
 
+
+// traverse the tree recursively and debug the tree by 
+// printing the type of nodes along with their source code 
 void traverse_and_debug(TSNode node, int nest, const char *source ) 
 {
     for(u32 i = 0; i < ts_node_child_count(node); i++) 
@@ -74,12 +64,22 @@ void traverse_and_debug(TSNode node, int nest, const char *source )
         for(int i = 0; i < nest ; i++) {
             printf(" ");
         }
-        printf("%s : ",ts_node_type(child));
-        printf("%s\n", string);
+        if(DEBUG_VERBOSE){
+            printf("%s : ",ts_node_type(child));
+            printf("%s\n", string);
+        } else {
+            if(ts_node_is_named(child)){
+                printf("%s : ",ts_node_type(child));
+                 printf("%s\n", string);
+            }
+        }
+        
+        
         traverse_and_debug(child,nest + 1, source);
     }
 }
-// @UNIMPLEMENTED() this should print tree nodes with their names so i can verify if the tree has indeed changed
+// debug_tree prints tree nodes with their names so you can verify if the tree has indeed changed
+// after editing the tree 
 void debug_tree(TSNode root_node, const char *source) 
 {
     traverse_and_debug(root_node,0, source);
@@ -99,20 +99,21 @@ void change_field_in_struct(char *modified,
             break;
         }
     }
-    printf("ENTER THE CHILD PRINTER");
-    for(u32 i = 0; i < ts_node_child_count(fields); i++) {
-        char *string = ts_node_string(ts_node_child(fields,i));
-        printf("%s\n", string);
-        free(string);
+    if(VERBOSE){
+        printf("ENTER THE CHILD PRINTER");
+        for(u32 i = 0; i < ts_node_child_count(fields); i++) {
+            char *string = ts_node_string(ts_node_child(fields,i));
+            printf("%s\n", string);
+            free(string);
+        }
     }
 
 
-    // char *string = ts_node_string(node);
-    // printf("ENTER THE CHANGE FUNCTION\n");
-    // printf("%s\n",string);
-
     const char *query_string = "(field_declaration type: (primitive_type) declarator: (field_identifier) @name)";
-    // @TODO(make this as a macro) my code is already breaking i don't want to add more uncertainity
+    // const char *query_string ="(field_declaration type: (primitive_type) declarator: (_) (field_identifier) @name)";
+
+    
+    // @TODO(make this as a macro or a function ) my code is already breaking i don't want to add more uncertainity
     TSQueryError error_type; u32 error_offset;
 
     TSQuery *query = ts_query_new(
@@ -127,8 +128,8 @@ void change_field_in_struct(char *modified,
     ts_query_cursor_exec(cursor, query, fields);
     
     TSQueryMatch match;
-    TSNode name_node = {0};
     while(ts_query_cursor_next_match(cursor, &match)){
+        TSNode name_node = {0};
         for(u32 i = 0; i < match.capture_count; i++) {
             u32 length;
             const char *captured_name = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
@@ -154,7 +155,7 @@ void change_field_in_struct(char *modified,
                 memcpy(modified + start_byte, to, new_slice_size);
                 edit->start_byte = start_byte;
                 edit->old_end_byte = end_byte;
-                edit->new_end_byte = end_byte + new_slice_size - slice_size;
+                edit->new_end_byte = start_byte+ new_slice_size;
                 edit->start_point = ts_node_start_point(name_node);
                 edit->old_end_point = ts_node_end_point(name_node);
                 edit->new_end_point = (TSPoint){
@@ -303,9 +304,8 @@ int main(int argc, char *argv[])
     }
     
     char *node_string = ts_node_string(root_node);
-    if(VERBOSE){
-        printf("%s\n", node_string);
-    }
+    printf("%s\n", node_string);
+    
 
     printf("--------------------------------------------------------------------------------------------------------------\n");
     if(VERBOSE){
@@ -343,11 +343,10 @@ int main(int argc, char *argv[])
     const char *from = "time_taken";
     const char *to   = "duration";
 
-    printf("--------------------------------------------DEBUG_INFO-----------------------------------\n");
+    printf("----------------------------DEBUG_INFO--------------------------------------------------\n");
     printf("____________________________BEFORE-CHANGE________________________________________________\n");
     
     debug_tree(root_node,info.source_code);
-
     change_struct_field(name, from, to, &info);
     change_struct_field("Halwa","nmae", "name",&info);
 
@@ -360,3 +359,4 @@ int main(int argc, char *argv[])
     ts_cleanup(&info);
 
 }
+
