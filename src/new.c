@@ -9,17 +9,21 @@ typedef uint32_t u32;
 #define VERBOSE 0
 
 
-
+typedef struct {
+    TSTree *tree;
+    const char *source_code;
+    TSParser *parser;
+} TSTreeInfo;
 
 // definitions 
 void traverse(TSNode root_node,int nest);
 void print_tree(TSNode root_node);
 void print_tree_with_cursor(TSTreeCursor *tree_cursor);
-void debug_tree(TSNode root_node);
+void traverse_and_debug(TSNode node, int nest, const char *source );
+void debug_tree(TSNode root_node, const char *source);
 void change_field_in_struct(char *modified, TSNode node, const char *from,
                              const char *to,TSInputEdit *edit);
-TSTree *change_struct_field(const char *struct_name,const char *from,const char *to,TSTree *tree, 
-                            TSNode root_node,const char *source);
+void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
 TSNode find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
 
 const TSLanguage *tree_sitter_c(void);
@@ -37,6 +41,7 @@ void traverse(TSNode root_node, int nest)
         traverse(child,nest + 1);
     }
 }
+
 
 void print_tree(TSNode root_node) 
 {
@@ -56,11 +61,28 @@ void print_tree_with_cursor(TSTreeCursor *tree_cursor)
     } while(ts_tree_cursor_goto_next_sibling(tree_cursor));
 }
 
-
-// @UNIMPLEMENTED() this should print tree nodes with their names so i can verify if the tree has indeed changed
-void debug_tree(TSNode root_node) 
+void traverse_and_debug(TSNode node, int nest, const char *source ) 
 {
-    
+    for(u32 i = 0; i < ts_node_child_count(node); i++) 
+    {
+        TSNode child = ts_node_child(node,i);
+        u32 start = ts_node_start_byte(child);
+        u32 end   = ts_node_end_byte(child);
+
+        char *string = strndup(source + start,end - start);
+        
+        for(int i = 0; i < nest ; i++) {
+            printf(" ");
+        }
+        printf("%s : ",ts_node_type(child));
+        printf("%s\n", string);
+        traverse_and_debug(child,nest + 1, source);
+    }
+}
+// @UNIMPLEMENTED() this should print tree nodes with their names so i can verify if the tree has indeed changed
+void debug_tree(TSNode root_node, const char *source) 
+{
+    traverse_and_debug(root_node,0, source);
 }
 void change_field_in_struct(char *modified,
                             TSNode node,
@@ -192,35 +214,30 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
 // Posted by user529758, modified by community. See post 'Timeline' for change history
 // Retrieved 2026-01-27, License - CC BY-SA 4.0
 
-TSTree *change_struct_field(const char *struct_name,
+void change_struct_field(const char *struct_name,
                     const char *from,
                     const char *to,
-                    TSTree *tree,
-                    TSNode root_node,
-                    const char *source)
+                    TSTreeInfo *info)
 {
-    TSNode struct_node = find_struct_with_name(source,struct_name,root_node);
+    TSNode root_node = ts_tree_root_node(info->tree);
+    TSNode struct_node = find_struct_with_name(info->source_code,struct_name,root_node);
     if(ts_node_is_null(struct_node)) {
-        return tree;
+        return;
     }
-    char *modified_source = malloc(strlen(source) + 1);
-    strcpy(modified_source,source);
+    char *modified_source = malloc(strlen(info->source_code) + 1);
+    strcpy(modified_source,info->source_code);
     TSInputEdit edit = {0};
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
-    ts_tree_edit(tree, &edit);
-    TSParser *parser = ts_parser_new();
-    ts_parser_set_language(parser, tree_sitter_c());
-    
+    ts_tree_edit(info->tree, &edit);
     TSTree *new_tree = ts_parser_parse_string(
-        parser, 
-        tree,
+        info->parser, 
+        info->tree,
         modified_source,
         strlen(modified_source)
     );
-    ts_tree_delete(tree);
-    ts_parser_delete(parser);
-    free(modified_source);
-    return new_tree;
+    ts_tree_delete(info->tree);
+    info->source_code = modified_source;
+    info->tree =  new_tree;
 }
 char *read_entire_file(const char *file_path)
 {
@@ -238,12 +255,19 @@ char *read_entire_file(const char *file_path)
     return string;
 }
 
+void ts_cleanup(TSTreeInfo *info) 
+{
+    ts_tree_delete(info->tree);
+    ts_parser_delete(info->parser);
+    info->tree = NULL;
+    info->parser = NULL;
+}
 
 int main(int argc, char *argv[]) 
 {
     TSParser *parser = ts_parser_new();
     ts_parser_set_language(parser, tree_sitter_c());
-    const char *source_code = "struct Mutton {}; struct Halwa {int time_taken; char *name; };";
+    const char *source_code = "struct Mutton {}; struct Halwa {int time_taken; char nmae; };";
     const char *query_string = "(binary_expression (number_literal)(number_literal)) @bin";
     
     if(argc > 1) {
@@ -252,7 +276,6 @@ int main(int argc, char *argv[])
     if(argc > 2) {
         query_string = argv[2];
     }
-
     char *modified_source = malloc(strlen(source_code) + 1);
     strcpy(modified_source,source_code);
 
@@ -262,7 +285,14 @@ int main(int argc, char *argv[])
         source_code,
         strlen(source_code)
     );
-    TSNode root_node = ts_tree_root_node(tree);
+
+    TSTreeInfo info = {
+        .tree = tree,
+        .source_code = source_code,
+        .parser = parser
+    };
+
+    TSNode root_node = ts_tree_root_node(info.tree);
     TSTreeCursor tree_cursor = ts_tree_cursor_new(root_node);
     if (VERBOSE) {
         if(CURSOR_MODE){
@@ -312,26 +342,21 @@ int main(int argc, char *argv[])
     const char *name = "Halwa";
     const char *from = "time_taken";
     const char *to   = "duration";
-    // TSNode struct_node = find_struct_with_name(source_code,name,root_node);
-    // if(ts_node_is_null(struct_node)){
-    //     printf("THis shit is shit");
-    //     printf("The struct is not there in the specified node");
-    // } else {
-    //     TSInputEdit edit = {0};
-    //     change_field_in_struct(modified_source,struct_node,from, to, &edit);
-    //     printf("%s\n", modified_source);
-    // }
-    print_tree(root_node);
 
-    tree = change_struct_field(name, from, to, tree, root_node, source_code);
-
-    root_node = ts_tree_root_node(tree);
+    printf("--------------------------------------------DEBUG_INFO-----------------------------------\n");
+    printf("____________________________BEFORE-CHANGE________________________________________________\n");
     
-    print_tree(root_node);
+    debug_tree(root_node,info.source_code);
+
+    change_struct_field(name, from, to, &info);
+    change_struct_field("Halwa","nmae", "name",&info);
+
+    root_node = ts_tree_root_node(info.tree);
+    printf("____________________________AFTER-CHANGE________________________________________________\n");
+    debug_tree(root_node, info.source_code);
     free(node_string);
     ts_query_delete(query);
     ts_query_cursor_delete(query_cursor);
-    ts_tree_delete(tree);
-    ts_parser_delete(parser);
+    ts_cleanup(&info);
 
 }
