@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include "utils.h"
 #include "core.h"
 typedef uint32_t u32; 
 
@@ -8,28 +9,7 @@ typedef uint32_t u32;
 #define CURSOR_MODE 0 
 
 
-void pretty_print_tree(const char *node_string) 
-{
-    int indent = 0;
-    for (const char *p = node_string; *p != '\0'; p++) {
-        if (*p == '(') {
-            printf("\n");
-            for (int i = 0; i < indent; i++) {
-                printf("  ");
-            }
-            indent++;
-            printf("(");
-        } else if (*p == ')') {
-            indent--;
-            printf(")");
-        } else if (*p == ' ') {
-            printf(" ");
-        } else {
-            printf("%c", *p);
-        }
-    }
-    printf("\n");
-}
+
 int main(int argc, char *argv[]) 
 {
     TSParser *parser = ts_parser_new();
