@@ -11,7 +11,7 @@ C_PARSER_DIR = ./tree-sitter-c
 SRC_DIR = ./src
 
 # Source files
-SRCS = $(SRC_DIR)/new.c $(C_PARSER_DIR)/src/parser.c
+SRCS = $(SRC_DIR)/core.c $(SRC_DIR)/main.c $(C_PARSER_DIR)/src/parser.c
 OBJS = $(SRCS:.c=.o)
 
 # Libraries (using direct path - no -l needed here since we're passing file directly)
