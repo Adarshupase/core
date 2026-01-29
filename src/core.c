@@ -136,12 +136,22 @@ void print_tree_with_cursor(TSTreeCursor *tree_cursor)
 // printing the type of nodes along with their source code 
 void traverse_and_debug(TSNode node, int nest, const char *source ) 
 {
+    u32 start = ts_node_start_byte(node);
+    u32 end = ts_node_end_byte(node);
+
+    char *string = strndup(source + start, end - start);
+    if(ts_node_is_named(node)){
+        printf("%s : ",ts_node_type(node));
+        printf("%s\n", string);
+    }
+    free(string);
+
     for(u32 i = 0; i < ts_node_child_count(node); i++) 
     {
         TSNode child = ts_node_child(node,i);
         u32 start = ts_node_start_byte(child);
         u32 end   = ts_node_end_byte(child);
-
+        
         char *string = strndup(source + start,end - start);
         
         for(int i = 0; i < nest ; i++) {
@@ -175,10 +185,11 @@ void change_field_in_struct(char *modified,
                             TSInputEdit *edit)
 {
     
-    const char *query_string = "(field_declaration) @field";
+    const char *query_string = "(field_declaration) @field_declaration";
 
     // @TODO(make this as a macro or a function ) my code is already breaking i don't want to add more uncertainity
     TSQueryError error_type; u32 error_offset;
+    
 
     TSQuery *query = ts_query_new(
         tree_sitter_c(), 
@@ -193,43 +204,45 @@ void change_field_in_struct(char *modified,
 
     ts_query_cursor_exec(cursor, query, node);
     while(ts_query_cursor_next_match(cursor, &match)){
-        TSNode name_node = {0};
-        for(u32 i = 0; i < match.capture_count; i++) {
-            TSNode node = match.captures[i].node;
-            name_node = find_child_node_of_type(node, "field_identifier");
-        }
-        if(!ts_node_is_null(name_node)){
-            u32 start_byte = ts_node_start_byte(name_node);
-            u32 end_byte   = ts_node_end_byte(name_node);
-            u32 slice_size = end_byte - start_byte;
+        TSNode field_declaration_node   = match.captures[0].node;
+        
 
-            if (strncmp(modified + start_byte, from, slice_size) == 0 && from[slice_size] == '\0') 
-            { 
-                size_t new_slice_size = strlen(to);
-                if(new_slice_size != slice_size) {
-                    memmove(
-                        modified + start_byte + new_slice_size,
-                        modified + end_byte, 
-                        strlen(modified) - end_byte + 1
-                    );
+        u32 n = ts_node_named_child_count(field_declaration_node);
+        for(u32 i = 0; i < n; i++){
+            TSNode child_node = ts_node_named_child(field_declaration_node,i);
+            TSNode name_node = find_child_node_of_type(child_node,"field_identifier");
+            if(ts_node_is_null(name_node)) {continue;}
+                u32 start_byte = ts_node_start_byte(name_node);
+                u32 end_byte   = ts_node_end_byte(name_node);
+                u32 slice_size = end_byte - start_byte;
+                if (strncmp(modified + start_byte, from, slice_size) == 0 && from[slice_size] == '\0') 
+                { 
+                    size_t new_slice_size = strlen(to);
+                    if(new_slice_size != slice_size) {
+                        memmove(
+                            modified + start_byte + new_slice_size,
+                            modified + end_byte, 
+                            strlen(modified) - end_byte + 1
+                        );
+                    }
+                    memcpy(modified + start_byte, to, new_slice_size);
+                    edit->start_byte = start_byte;
+                    edit->old_end_byte = end_byte;
+                    edit->new_end_byte = start_byte+ new_slice_size;
+                    edit->start_point = ts_node_start_point(name_node);
+                    edit->old_end_point = ts_node_end_point(name_node);
+                    TSPoint start = ts_node_start_point(name_node);
+
+                    edit->new_end_point = (TSPoint){
+                        .row = start.row,
+                        .column = start.column + new_slice_size
+                    };
+                    
+
+                    return;
                 }
-                memcpy(modified + start_byte, to, new_slice_size);
-                edit->start_byte = start_byte;
-                edit->old_end_byte = end_byte;
-                edit->new_end_byte = start_byte+ new_slice_size;
-                edit->start_point = ts_node_start_point(name_node);
-                edit->old_end_point = ts_node_end_point(name_node);
-                TSPoint start = ts_node_start_point(name_node);
-
-                edit->new_end_point = (TSPoint){
-                    .row = start.row,
-                    .column = start.column + new_slice_size
-                };
-                
-
-                break;
-            } 
-        }
+             
+        } 
     }
     ts_query_cursor_delete(cursor); 
     ts_query_delete(query); 
@@ -315,6 +328,8 @@ void change_struct_field_in_program(char *modified_source, const char *struct_na
 }
 TSNode find_child_node_of_type(TSNode node, const char *type)
 {
+    if(strcmp(ts_node_type(node),type)==0) return node;
+    
     for (u32 i = 0; i < ts_node_child_count(node); i++) {
         TSNode child = ts_node_child(node, i);
 
@@ -389,8 +404,6 @@ void change_struct_field(const char *struct_name,
 
     strcpy(modified_source,info->source_code);
     TSInputEdit edit = {0};
-    // @TODO(field doesn't change when fields are declared within a same line 
-    // like int a,b,c; here b & c dont change)
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
     ts_tree_edit(info->tree, &edit);
     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}

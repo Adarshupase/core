@@ -9,6 +9,31 @@ typedef uint32_t u32;
 #define CURSOR_MODE 0 
 
 
+void print_all_nodes_for_query(const char *query_string, TSNode node, const char *source) 
+{
+    TSQueryError error_type; u32 error_offset;
+
+    TSQuery *query = ts_query_new(
+        tree_sitter_c(),
+        query_string, 
+        strlen(query_string),
+        &error_offset,
+        &error_type
+    );
+
+    TSQueryCursor *cursor = ts_query_cursor_new();
+    TSQueryMatch match;
+
+    ts_query_cursor_exec(cursor, query,node );
+    while(ts_query_cursor_next_match(cursor, &match)){
+        for(u32 i = 0; i < match.capture_count; i++) {
+            TSNode node = match.captures[i].node;
+            debug_tree(node,source);
+            printf("__________DEBUG____________\n");
+        }
+    }
+
+}
 
 int main(int argc, char *argv[]) 
 {
@@ -50,11 +75,12 @@ int main(int argc, char *argv[])
     }
     
     char *node_string = ts_node_string(root_node);
-    // printf("%s\n", node_string);
+    printf("%s\n", node_string);
+    
     pretty_print_tree(node_string);
     
 
-    printf("--------------------------------------------------------------------------------------------------------------\n");
+    // printf("--------------------------------------------------------------------------------------------------------------\n");
     if(VERBOSE){
         printf("Source Code: %s\n", source_code);
         printf("Query String: %s\n", query_string);
@@ -89,13 +115,15 @@ int main(int argc, char *argv[])
         }
     }
     
-    printf("----------------------------DEBUG_INFO--------------------------------------------------\n");
-    printf("____________________________BEFORE-CHANGE________________________________________________\n");
+    // printf("----------------------------DEBUG_INFO--------------------------------------------------\n");
+    // printf("____________________________BEFORE-CHANGE________________________________________________\n");
     
-    debug_tree(root_node,info.source_code);
-    change_struct_field("Halwa","a","c",&info);
-    change_struct_field("Halwa","b","d",&info);
-    change_struct_field("Halwa","f","h",&info);
+    // debug_tree(root_node,info.source_code);
+    change_struct_field("Halwa","a","b",&info);
+    change_struct_field("Halwa","x","y",&info);
+    change_struct_field("Halwa","m","n",&info);
+    change_struct_field("Halwa","e","f",&info);
+    change_struct_field("Halwa","s","t",&info);
 
     if(argc > 1) {
         const char *file_name = argv[1];
@@ -103,10 +131,13 @@ int main(int argc, char *argv[])
     }
 
     root_node = ts_tree_root_node(info.tree);
-    printf("____________________________AFTER-CHANGE________________________________________________\n");
-    debug_tree(root_node, info.source_code);
+    // printf("____________________________AFTER-CHANGE________________________________________________\n");
+    // debug_tree(root_node, info.source_code);
     
     
+    // const char *string_query ="(field_declaration declarator: (field_identifier) @field_name)";
+    // print_all_nodes_for_query(string_query, root_node, info.source_code);
+
     free(node_string);
     ts_query_delete(query);
     ts_tree_cursor_delete(&tree_cursor);
