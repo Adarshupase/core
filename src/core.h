@@ -1,6 +1,7 @@
 #ifndef __CORE_H
 #define __CORE_H
 #include <tree_sitter/api.h>
+#include "utils.h"
 const TSLanguage *tree_sitter_c(void);
 typedef struct {
     TSTree *tree;
@@ -8,12 +9,8 @@ typedef struct {
     TSParser *parser;
 } TSTreeInfo;
 
-typedef struct {
-    char *string;
-    int size;
-} String_Builder;
-void sb_append(String_Builder *sb, const char *string);
-void sb_free(String_Builder *sb);
+
+
 void traverse(TSNode root_node,int nest);
 void print_tree(TSNode root_node);
 void print_tree_with_cursor(TSTreeCursor *tree_cursor);

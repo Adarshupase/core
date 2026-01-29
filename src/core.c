@@ -94,21 +94,7 @@ void find_all_struct_declarations(const char *struct_name, TSNode root_node,cons
 // definitions 
 
 
-void sb_append(String_Builder *sb, const char *string) 
-{
-    int old_size = sb->size;
-    int new_size = old_size + strlen(string);
-    sb->string = realloc(sb->string, new_size + 1);
-    strcpy(sb->string + old_size, string);
-    sb->size = new_size;
-}
 
-void sb_free(String_Builder *sb) 
-{
-    free(sb->string);
-    sb->string = NULL;
-    sb->size = 0;
-}
 
 void traverse(TSNode root_node, int nest)
 {
@@ -181,6 +167,7 @@ void debug_tree(TSNode root_node, const char *source)
 {
     traverse_and_debug(root_node,0, source);
 }
+// change the field name in struct definition only 
 void change_field_in_struct(char *modified,
                             TSNode node,
                             const char *from,
@@ -250,6 +237,10 @@ void change_field_in_struct(char *modified,
 }
 
 
+
+// change the field name in the whole program wherever the struct type is declared and used
+// @TODO(this is currently inefficient as we need to check for the presence of the struct identifier 
+// with the struct name type using a linear search )
 void change_struct_field_in_program(char *modified_source, const char *struct_name, const char *from, 
                                     const char *to, TSInputEdit *edit, TSNode root_node)
 {
@@ -313,10 +304,11 @@ void change_struct_field_in_program(char *modified_source, const char *struct_na
                 }
             }
             free(string);
-            cleanup();
+            
 
         }
     }
+    cleanup();
     ts_query_cursor_delete(cursor);
     ts_query_delete(query);
 
@@ -397,8 +389,11 @@ void change_struct_field(const char *struct_name,
 
     strcpy(modified_source,info->source_code);
     TSInputEdit edit = {0};
+    // @TODO(field doesn't change when fields are declared within a same line 
+    // like int a,b,c; here b & c dont change)
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
     ts_tree_edit(info->tree, &edit);
+    //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
     change_struct_field_in_program(modified_source,struct_name, from, to, &edit, root_node);
     
     TSTree *new_tree = ts_parser_parse_string(

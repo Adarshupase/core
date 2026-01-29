@@ -59,10 +59,6 @@ int main(int argc, char *argv[])
         printf("Source Code: %s\n", source_code);
         printf("Query String: %s\n", query_string);
     }
-    
-    
-    
-
 
     u32 error_offset ;
     TSQueryError error_type;
@@ -98,7 +94,13 @@ int main(int argc, char *argv[])
     
     debug_tree(root_node,info.source_code);
     change_struct_field("Halwa","a","c",&info);
-    change_struct_field("Halwa","c","d",&info);
+    change_struct_field("Halwa","b","d",&info);
+    change_struct_field("Halwa","f","h",&info);
+
+    if(argc > 1) {
+        const char *file_name = argv[1];
+        write_modified_string_to_file(file_name,info.source_code);
+    }
 
     root_node = ts_tree_root_node(info.tree);
     printf("____________________________AFTER-CHANGE________________________________________________\n");
