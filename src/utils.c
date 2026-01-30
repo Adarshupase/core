@@ -1,8 +1,12 @@
+
+#define _GNU_SOURCE
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
+#define HASH_TABLE_SIZE 50
 
 
 String_Builder sb_init() 
@@ -87,3 +91,16 @@ void write_modified_string_to_file(const char *file_name, const char *source_str
     fclose(file);
     sb_free(&sb);
 }
+
+char *trim(char *s) 
+{
+    while(isspace((unsigned char)*s)) s++;
+    if(*s == 0) return s;
+
+    char *end = s + strlen(s) - 1;
+    while(end > s && isspace((unsigned char)*end)) end--;
+    end[1] = '\0';
+    return s;
+}
+
+

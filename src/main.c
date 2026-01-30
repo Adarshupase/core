@@ -119,11 +119,11 @@ int main(int argc, char *argv[])
     // printf("____________________________BEFORE-CHANGE________________________________________________\n");
     
     // debug_tree(root_node,info.source_code);
-    change_struct_field("Halwa","a","b",&info);
-    change_struct_field("Halwa","x","y",&info);
-    change_struct_field("Halwa","m","n",&info);
-    change_struct_field("Halwa","e","f",&info);
-    change_struct_field("Halwa","s","t",&info);
+    // change_struct_field("Halwa","a","b",&info);
+    // change_struct_field("Halwa","x","y",&info);
+    // change_struct_field("Halwa","m","n",&info);
+    // change_struct_field("Halwa","e","f",&info);
+    // change_struct_field("Halwa","s","t",&info);
 
     if(argc > 1) {
         const char *file_name = argv[1];
@@ -137,7 +137,17 @@ int main(int argc, char *argv[])
     
     // const char *string_query ="(field_declaration declarator: (field_identifier) @field_name)";
     // print_all_nodes_for_query(string_query, root_node, info.source_code);
-
+    int total_commands;
+    
+    Core_Command *commands = parse_commands("core.txt",&total_commands);
+    
+    print_commands(commands,total_commands);
+    execute_commands(commands,total_commands,&info);
+    if(argc > 1) {
+        const char *file_name = argv[1];
+        write_modified_string_to_file(file_name,info.source_code);
+    }
+    free_commands(commands,total_commands);
     free(node_string);
     ts_query_delete(query);
     ts_tree_cursor_delete(&tree_cursor);

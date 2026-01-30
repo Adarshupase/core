@@ -2,15 +2,22 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <ctype.h>
+
 #include "core.h"
+
 
 typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINION_SIZE 1000
-
+#define TOTAL_CORE_COMMANDS 1
 
 char *array[MAX_DEFINION_SIZE] = {NULL};
 int array_size = 0;
+char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field"};
+COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD};
+int core_command_arguments[TOTAL_CORE_COMMANDS] = {3};
+
 
 void insert_into_array(const char *string) 
 {   char *dup_string = strndup(string,strlen(string));
@@ -326,6 +333,146 @@ void change_struct_field_in_program(char *modified_source, const char *struct_na
     ts_query_delete(query);
 
 }
+void print_commands(Core_Command *commands, int total) 
+{
+    for(int i = 0; i < total; i++) {
+        printf("Command: %s\n", commands[i].command);
+        printf("Args (%d): ", commands[i].number_of_arguments);
+        for(int j = 0; j < commands[i].number_of_arguments; j++) {
+            printf("%s", commands[i].args[j]);
+            if(j + 1 < commands[i].number_of_arguments) {
+                printf(", ");
+            }
+            printf("\n");
+        }
+    }
+}
+
+
+COMMAND_TYPE search_for_command(const char *string, int number_of_arguments){
+    for(int i = 0; i < TOTAL_CORE_COMMANDS; i++) {
+        if((strcmp(core_commands[i],string)==0)){
+            if(core_command_arguments[i]==number_of_arguments){
+                return core_commands_enum[i];
+            } else {
+                return ARGUMENT_MISMATCH;
+            }
+        }
+    }
+    return COMMAND_NOT_FOUND;
+    
+}
+void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *info) 
+{
+    for(int i = 0; i < total_commands; i++) {
+        COMMAND_TYPE command = search_for_command(commands[i].command, commands[i].number_of_arguments);
+            switch (command)
+            {
+            case CHANGE_STRUCT_FIELD:
+                change_struct_field(commands[i].args[0],commands[i].args[1],commands[i].args[2],info);
+                break;
+            case ARGUMENT_MISMATCH:
+                fprintf(stderr,"command %s failed arguments mismatch\n",commands[i].command);
+                return;
+            case COMMAND_NOT_FOUND:
+                fprintf(stderr,
+                "Error: unknown command '%s'\n",
+                commands[i].command);
+            return;
+
+            
+            default:
+                break;
+            }
+    }
+    
+}
+
+Core_Command *parse_commands(const char *filename, int *total_commands)
+{
+    *total_commands = 0;
+    char *source = read_entire_file(filename);
+    if(source == NULL) {
+        perror("Can't read file\n");
+        return NULL;
+    }
+    int capacity = 0;
+    for(char *p = source ; *p;) {
+        while(*p && isspace((unsigned char)*p))p++;
+        if(!*p) break;
+        capacity++;
+        while(*p && *p != '\n') p++;
+    }
+    if(capacity == 0) {
+        free(source);
+        return NULL;
+    }
+    Core_Command *commands = calloc(capacity, sizeof(Core_Command));
+
+    char *copy = strdup(source);
+    char *save_line;
+    char *line = strtok_r(copy, "\n", &save_line);
+
+    int count = 0;
+
+    while(line) {
+        char *l = trim(line);
+
+        if(*l == '\0') {
+            line = strtok_r(NULL, "\n", &save_line);
+            continue;
+        }
+        char *open = strchr(l, '(');
+        char *close = strchr(l, ')');
+
+        if(!open || !close || close < open) {
+            line = strtok_r(NULL, "\n",&save_line);
+            continue;
+        }
+        *open = '\0';
+        *close = '\0';
+
+        commands[count].command = strdup(trim(l));
+        char *args_str = trim(open + 1);
+        int argc = 0;
+        if(*args_str) {
+            argc = 1;
+            for(char *p = args_str; *p; p++) {
+                if(*p == ',') argc++;
+            }
+        }
+        commands[count].number_of_arguments = argc;
+        commands[count].args = malloc(sizeof(char *) * argc);
+
+        char *save_arg;
+        char *arg = strtok_r(args_str,",",&save_arg);
+        int i = 0;
+        while(arg) {
+            commands[count].args[i++] = strdup(trim(arg));
+            arg = strtok_r(NULL, ",", &save_arg);
+        }
+        count++;
+        line = strtok_r(NULL, "\n",&save_line);
+
+    }
+    free(copy);
+    free(source);
+
+    *total_commands = count;
+    return commands; 
+}
+
+void free_commands(Core_Command *commands, int total) 
+{
+    for(int i = 0; i < total; i++) {
+        free(commands[i].command);
+        for(int j = 0; j < commands[i].number_of_arguments; j++) {
+            free(commands[i].args[j]);
+        }
+        free(commands[i].args);
+    }
+    free(commands);
+}
 TSNode find_child_node_of_type(TSNode node, const char *type)
 {
     if(strcmp(ts_node_type(node),type)==0) return node;
@@ -409,6 +556,7 @@ void change_struct_field(const char *struct_name,
     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
     change_struct_field_in_program(modified_source,struct_name, from, to, &edit, root_node);
     
+
     TSTree *new_tree = ts_parser_parse_string(
         info->parser, 
         info->tree,
@@ -422,6 +570,7 @@ void change_struct_field(const char *struct_name,
 char *read_entire_file(const char *file_path)
 {
     FILE *f = fopen(file_path, "rb");
+    if(!f) return NULL;
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
