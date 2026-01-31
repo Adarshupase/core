@@ -91,7 +91,22 @@ void write_modified_string_to_file(const char *file_name, const char *source_str
     fclose(file);
     sb_free(&sb);
 }
+char *read_entire_file(const char *file_path)
+{
+    FILE *f = fopen(file_path, "rb");
+    if(!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
 
+    char *string = malloc(fsize + 1);
+    fread(string, fsize, 1, f);
+    fclose(f);
+
+    string[fsize] = 0;
+
+    return string;
+}
 char *trim(char *s) 
 {
     while(isspace((unsigned char)*s)) s++;

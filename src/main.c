@@ -143,6 +143,7 @@ int main(int argc, char *argv[])
     
     print_commands(commands,total_commands);
     execute_commands(commands,total_commands,&info);
+    change_struct_name("Entity","Component",&info);
     if(argc > 1) {
         const char *file_name = argv[1];
         write_modified_string_to_file(file_name,info.source_code);

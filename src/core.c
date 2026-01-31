@@ -11,6 +11,12 @@ typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINION_SIZE 1000
 #define TOTAL_CORE_COMMANDS 1
+#define TS_NODE_SLICE(node, start, end, size) \
+    do {                                     \
+        (start) = ts_node_start_byte(node); \
+        (end)   = ts_node_end_byte(node);   \
+        (size)  = (end) - (start);          \
+    } while (0)
 
 char *array[MAX_DEFINION_SIZE] = {NULL};
 int array_size = 0;
@@ -18,6 +24,15 @@ char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field"};
 COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD};
 int core_command_arguments[TOTAL_CORE_COMMANDS] = {3};
 
+
+TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
+    return ts_parser_parse_string(
+        info->parser, 
+        info->tree,
+        modified_source,
+        strlen(modified_source)
+    );
+}
 
 void insert_into_array(const char *string) 
 {   char *dup_string = strndup(string,strlen(string));
@@ -85,9 +100,8 @@ void find_all_struct_declarations(const char *struct_name, TSNode root_node,cons
             }
         }
         if(!ts_node_is_null(named_node)){
-            u32 start_byte = ts_node_start_byte(named_node);
-            u32 end_byte   = ts_node_end_byte(named_node);
-            u32 slice_size = end_byte - start_byte;
+            u32 start_byte, end_byte, slice_size;
+            TS_NODE_SLICE(named_node,start_byte, end_byte,slice_size);
             
             char *string = strndup(modified_source + start_byte, slice_size);
             insert_into_array(string);
@@ -143,10 +157,10 @@ void print_tree_with_cursor(TSTreeCursor *tree_cursor)
 // printing the type of nodes along with their source code 
 void traverse_and_debug(TSNode node, int nest, const char *source ) 
 {
-    u32 start = ts_node_start_byte(node);
-    u32 end = ts_node_end_byte(node);
+    u32 start, end , slice_size;
+    TS_NODE_SLICE(node,start, end, slice_size);
 
-    char *string = strndup(source + start, end - start);
+    char *string = strndup(source + start, slice_size);
     if(ts_node_is_named(node)){
         printf("%s : ",ts_node_type(node));
         printf("%s\n", string);
@@ -156,10 +170,9 @@ void traverse_and_debug(TSNode node, int nest, const char *source )
     for(u32 i = 0; i < ts_node_child_count(node); i++) 
     {
         TSNode child = ts_node_child(node,i);
-        u32 start = ts_node_start_byte(child);
-        u32 end   = ts_node_end_byte(child);
-        
-        char *string = strndup(source + start,end - start);
+        u32 start, end, slice_size;
+        TS_NODE_SLICE(child, start, end, slice_size);
+        char *string = strndup(source + start,slice_size);
         
         for(int i = 0; i < nest ; i++) {
             printf(" ");
@@ -185,6 +198,33 @@ void debug_tree(TSNode root_node, const char *source)
     traverse_and_debug(root_node,0, source);
 }
 // change the field name in struct definition only 
+
+
+void edit_source_code(const char *to, char *modified, TSNode name_node,TSInputEdit *edit)
+{
+    u32 start_byte, end_byte, slice_size;
+    TS_NODE_SLICE(name_node,start_byte,end_byte,slice_size);
+    size_t new_slice_size = strlen(to);
+    if(new_slice_size != slice_size){
+        memmove(
+        modified + start_byte + new_slice_size,
+        modified + end_byte, 
+        strlen(modified) - end_byte + 1
+        );
+    }
+    memcpy(modified + start_byte, to, new_slice_size);
+    edit->start_byte = start_byte;
+    edit->old_end_byte = end_byte;
+    edit->new_end_byte = start_byte+ new_slice_size;
+    edit->start_point = ts_node_start_point(name_node);
+    edit->old_end_point = ts_node_end_point(name_node);
+    TSPoint start = ts_node_start_point(name_node);
+
+    edit->new_end_point = (TSPoint){
+        .row = start.row,
+        .column = start.column + new_slice_size
+    };
+}
 void change_field_in_struct(char *modified,
                             TSNode node,
                             const char *from,
@@ -219,33 +259,11 @@ void change_field_in_struct(char *modified,
             TSNode child_node = ts_node_named_child(field_declaration_node,i);
             TSNode name_node = find_child_node_of_type(child_node,"field_identifier");
             if(ts_node_is_null(name_node)) {continue;}
-                u32 start_byte = ts_node_start_byte(name_node);
-                u32 end_byte   = ts_node_end_byte(name_node);
-                u32 slice_size = end_byte - start_byte;
+                u32 start_byte, end_byte, slice_size;
+                TS_NODE_SLICE(name_node, start_byte, end_byte,slice_size);
                 if (strncmp(modified + start_byte, from, slice_size) == 0 && from[slice_size] == '\0') 
                 { 
-                    size_t new_slice_size = strlen(to);
-                    if(new_slice_size != slice_size) {
-                        memmove(
-                            modified + start_byte + new_slice_size,
-                            modified + end_byte, 
-                            strlen(modified) - end_byte + 1
-                        );
-                    }
-                    memcpy(modified + start_byte, to, new_slice_size);
-                    edit->start_byte = start_byte;
-                    edit->old_end_byte = end_byte;
-                    edit->new_end_byte = start_byte+ new_slice_size;
-                    edit->start_point = ts_node_start_point(name_node);
-                    edit->old_end_point = ts_node_end_point(name_node);
-                    TSPoint start = ts_node_start_point(name_node);
-
-                    edit->new_end_point = (TSPoint){
-                        .row = start.row,
-                        .column = start.column + new_slice_size
-                    };
-                    
-
+                    edit_source_code(to,modified,name_node,edit);
                     return;
                 }
              
@@ -291,36 +309,14 @@ void change_struct_field_in_program(char *modified_source, const char *struct_na
              else if (strcmp(cap, "field_name") == 0) field_node = match.captures[i].node; 
         }
         if(!ts_node_is_null(identifier_node)) {
-            u32 start_byte = ts_node_start_byte(identifier_node);
-            u32 end_byte = ts_node_end_byte(identifier_node);
-            u32 slice_size = end_byte - start_byte;
-            u32 field_start_byte = ts_node_start_byte(field_node);
-            u32 field_end_byte = ts_node_end_byte(field_node);
-            u32 field_size = field_end_byte - field_start_byte;
+            u32 start_byte, end_byte, slice_size,field_start_byte, field_end_byte,field_size;
+            TS_NODE_SLICE(identifier_node, start_byte, end_byte,slice_size);
+            TS_NODE_SLICE(field_node, field_start_byte, field_end_byte, field_size);
             char *string = strndup(modified_source + start_byte, slice_size);
             if(find_in_array(string)) {
                 if (strncmp(modified_source + field_start_byte, from, field_size) == 0 && from[field_size] == '\0') 
                 { 
-                    size_t new_field_size = strlen(to);
-                    if(new_field_size != field_size) {
-                        memmove(
-                            modified_source + field_start_byte + new_field_size,
-                            modified_source + field_end_byte,   
-                            strlen(modified_source) - field_end_byte + 1
-                        );
-                    }
-                    memcpy(modified_source + field_start_byte, to, new_field_size); 
-                    edit->start_byte = field_start_byte;
-                    edit->old_end_byte = field_end_byte;
-                    edit->new_end_byte = field_start_byte + new_field_size;
-                    edit->start_point = ts_node_start_point(field_node);
-                    edit->old_end_point = ts_node_end_point(field_node);
-                    TSPoint start = ts_node_start_point(field_node);
-                    edit->new_end_point = (TSPoint){
-                        .row = start.row,
-                        .column = start.column + new_field_size
-                    };
-
+                    edit_source_code(to,modified_source,field_node,edit);
                 }
             }
             free(string);
@@ -452,6 +448,7 @@ Core_Command *parse_commands(const char *filename, int *total_commands)
             arg = strtok_r(NULL, ",", &save_arg);
         }
         count++;
+
         line = strtok_r(NULL, "\n",&save_line);
 
     }
@@ -493,6 +490,7 @@ TSNode find_child_node_of_type(TSNode node, const char *type)
     return (TSNode){0};
 }
 
+
 TSNode find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
 { 
     const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct"; 
@@ -520,9 +518,9 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
         }
         if (!ts_node_is_null(name_node)) 
         { 
-            u32 start = ts_node_start_byte(name_node); 
-            u32 end = ts_node_end_byte(name_node); 
-            if (strncmp(source + start, struct_name, end - start) == 0 && struct_name[end - start] == '\0') 
+            u32 start, end , slice_size;
+            TS_NODE_SLICE(name_node, start, end, slice_size);
+            if (strncmp(source + start, struct_name, slice_size) == 0 && struct_name[end - start] == '\0') 
             { 
                 result = struct_node; 
                 break; 
@@ -537,6 +535,37 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
 // Posted by user529758, modified by community. See post 'Timeline' for change history
 // Retrieved 2026-01-27, License - CC BY-SA 4.0
 
+void change_name_in_struct_declaration(
+    char *modified,
+    TSNode struct_node,
+    const char *to,
+    TSInputEdit *edit)
+{
+    TSNode name_node = find_child_node_of_type(struct_node,"type_identifier");
+
+    edit_source_code(to,modified,name_node,edit);
+
+}
+void change_struct_name(const char *struct_name,
+                    const char *to,
+                    TSTreeInfo *info)
+{
+    TSNode root_node = ts_tree_root_node(info->tree);
+    TSNode struct_node = find_struct_with_name(info->source_code,struct_name, root_node);
+    if(ts_node_is_null(struct_node)){
+        return;
+    }
+    char *modified_source = malloc(strlen(info->source_code) + 1);
+    strcpy(modified_source, info->source_code);
+    TSInputEdit edit = {0};
+    change_name_in_struct_declaration(modified_source, struct_node,to,&edit);
+    ts_tree_edit(info->tree, &edit);
+    
+    TSTree *new_tree = get_new_tree(info, modified_source);
+    ts_tree_delete(info->tree);
+    info->source_code = modified_source;
+    info->tree =  new_tree;
+}
 void change_struct_field(const char *struct_name,
                     const char *from,
                     const char *to,
@@ -554,34 +583,19 @@ void change_struct_field(const char *struct_name,
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
     ts_tree_edit(info->tree, &edit);
     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
-    change_struct_field_in_program(modified_source,struct_name, from, to, &edit, root_node);
-    
+    TSTree *tree1 = get_new_tree(info,modified_source);
+    ts_tree_delete(info->tree);
+    info->tree = tree1;
 
-    TSTree *new_tree = ts_parser_parse_string(
-        info->parser, 
-        info->tree,
-        modified_source,
-        strlen(modified_source)
-    );
+    TSNode new_root = ts_tree_root_node(info->tree);
+    change_struct_field_in_program(modified_source,struct_name, from, to, &edit, new_root);
+    // there should be ts_tree_edit(here)
+    ts_tree_edit(info->tree,&edit);
+
+    TSTree *tree2 = get_new_tree(info,modified_source);
     ts_tree_delete(info->tree);
     info->source_code = modified_source;
-    info->tree =  new_tree;
-}
-char *read_entire_file(const char *file_path)
-{
-    FILE *f = fopen(file_path, "rb");
-    if(!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
-
-    char *string = malloc(fsize + 1);
-    fread(string, fsize, 1, f);
-    fclose(f);
-
-    string[fsize] = 0;
-
-    return string;
+    info->tree =  tree2;
 }
 
 void ts_cleanup(TSTreeInfo *info) 
