@@ -33,7 +33,12 @@ void change_field_in_struct(char *modified, TSNode node, const char *from,
                              const char *to,TSInputEdit *edit);
 void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
 void change_struct_name(const char *struct_name,const char *to,TSTreeInfo *info);
-void change_name_in_struct_declaration(char *modified,TSNode struct_node, const char *to,TSInputEdit *edit);
+void change_name_in_struct_declaration(
+    char *modified,
+    TSNode struct_node,
+    const char *to,
+    TSTreeInfo *info);
+void change_struct_name_in_program(const char *struct_name,const char *to, TSTreeInfo *info,char *modified_source);
 void change_struct_field_in_program(char *modified_source, const char *struct_name, const char *from, 
                                     const char *to, TSInputEdit *edit, TSNode root_node);
 void ts_cleanup(TSTreeInfo *info) ;

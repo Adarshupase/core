@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
         &error_type
     );
     TSQueryCursor *query_cursor = ts_query_cursor_new();
-    TSNode struct_node = find_struct_with_name(info.source_code, "Halwa", root_node);
+    TSNode struct_node = find_struct_with_name(info.source_code, "Entity", root_node);
     
     ts_query_cursor_exec(query_cursor,query,struct_node);
     TSQueryMatch match;
@@ -130,25 +130,29 @@ int main(int argc, char *argv[])
         write_modified_string_to_file(file_name,info.source_code);
     }
 
+
     root_node = ts_tree_root_node(info.tree);
+    
     // printf("____________________________AFTER-CHANGE________________________________________________\n");
     // debug_tree(root_node, info.source_code);
     
     
     // const char *string_query ="(field_declaration declarator: (field_identifier) @field_name)";
     // print_all_nodes_for_query(string_query, root_node, info.source_code);
-    int total_commands;
+    // int total_commands;
     
-    Core_Command *commands = parse_commands("core.txt",&total_commands);
+    // Core_Command *commands = parse_commands("core.txt",&total_commands);
     
-    print_commands(commands,total_commands);
-    execute_commands(commands,total_commands,&info);
+    // print_commands(commands,total_commands);
+    // execute_commands(commands,total_commands,&info);
+    // change_struct_name("Entity","Component",&info);
+    change_struct_field("Entity","a","good_field",&info);
     change_struct_name("Entity","Component",&info);
     if(argc > 1) {
         const char *file_name = argv[1];
         write_modified_string_to_file(file_name,info.source_code);
     }
-    free_commands(commands,total_commands);
+    // free_commands(commands,total_commands);
     free(node_string);
     ts_query_delete(query);
     ts_tree_cursor_delete(&tree_cursor);

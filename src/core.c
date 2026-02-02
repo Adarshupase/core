@@ -11,6 +11,7 @@ typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINION_SIZE 1000
 #define TOTAL_CORE_COMMANDS 1
+#define MAX_STRUCT_DECLARATIONS 100
 #define TS_NODE_SLICE(node, start, end, size) \
     do {                                     \
         (start) = ts_node_start_byte(node); \
@@ -62,10 +63,9 @@ void cleanup()
     array_size = 0;
 }
 
-void find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
+TSQuery *struct_declaration_query(const char *struct_name)
 {
     String_Builder sb = {0};
-
     sb_append(&sb, "(declaration type: (struct_specifier name: (type_identifier) @struct_name) ");
     sb_append(&sb, "(#eq? @struct_name \"");
     sb_append(&sb, struct_name);
@@ -80,9 +80,14 @@ void find_all_struct_declarations(const char *struct_name, TSNode root_node,cons
         &error_offset,
         &error_type
     );
-    sb_free(&sb);
 
+    return query;
+    
+}
 
+void find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
+{
+    TSQuery *query = struct_declaration_query(struct_name);
     TSQueryCursor *cursor = ts_query_cursor_new();
     TSQueryMatch match;
 
@@ -109,6 +114,8 @@ void find_all_struct_declarations(const char *struct_name, TSNode root_node,cons
             string = NULL;
         }
     }
+    ts_query_cursor_delete(cursor);
+    ts_query_delete(query);
 
 }
 
@@ -317,6 +324,8 @@ void change_struct_field_in_program(char *modified_source, const char *struct_na
                 if (strncmp(modified_source + field_start_byte, from, field_size) == 0 && from[field_size] == '\0') 
                 { 
                     edit_source_code(to,modified_source,field_node,edit);
+                    free(string);
+                    return;
                 }
             }
             free(string);
@@ -539,11 +548,93 @@ void change_name_in_struct_declaration(
     char *modified,
     TSNode struct_node,
     const char *to,
-    TSInputEdit *edit)
+    TSTreeInfo *info)
 {
+    TSInputEdit edit= {0};
     TSNode name_node = find_child_node_of_type(struct_node,"type_identifier");
+    edit_source_code(to,modified,name_node,&edit);
+    ts_tree_edit(info->tree,&edit);
+    TSTree *new_tree = get_new_tree(info, modified);
+    ts_tree_delete(info->tree);
+    info->tree =  new_tree;
+    info->source_code = modified;
 
-    edit_source_code(to,modified,name_node,edit);
+}
+
+
+// void change_struct_name_in_program(const char *struct_name,const char *to, TSTreeInfo *info,char *modified_source)
+// {
+//     // TSTree *tree1 = get_new_tree(info,modified_source);// create a new tree 
+//     // ts_tree_delete(info->tree); // delete the old tree 
+//     // info->tree = tree1; // set the new tree in info 
+
+//     // TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
+
+//     TSNode root_node = ts_tree_root_node(info->tree);
+//     TSQuery *query = struct_declaration_query(struct_name);
+//     TSQueryCursor *cursor = ts_query_cursor_new(); 
+//     ts_query_cursor_exec(cursor, query, root_node); 
+//     TSQueryMatch match;
+//     while(ts_query_cursor_next_match(cursor,&match)){
+//         for(u32 i = 0; i < match.capture_count; i++) {
+//             u32 length;
+//             const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
+//             if(strcmp(cap,"struct_name")==0){
+//                 TSNode name_node = match.captures[i].node;
+//                 if(ts_node_is_null(name_node)) printf("Not FOUND\n");
+//                 TSInputEdit edit = {0};
+//                 edit_source_code(to,modified_source,name_node,&edit);
+//                 ts_tree_edit(info->tree,&edit);
+//                 TSTree *new_tree = get_new_tree(info,modified_source);
+//                 ts_tree_delete(info->tree);
+//                 info->tree = new_tree;
+//                 info->source_code = modified_source;
+//             }
+//         }
+//     }
+//     ts_query_cursor_delete(cursor);
+//     ts_query_delete(query);
+
+// }
+
+void change_struct_name_in_program(const char *struct_name,const char *to, TSTreeInfo *info,char *modified_source)
+{
+    // TSTree *tree1 = get_new_tree(info,modified_source);// create a new tree 
+    // ts_tree_delete(info->tree); // delete the old tree 
+    // info->tree = tree1; // set the new tree in info 
+
+    // TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
+
+    TSNode root_node = ts_tree_root_node(info->tree);
+    TSQuery *query = struct_declaration_query(struct_name);
+    TSQueryCursor *cursor = ts_query_cursor_new(); 
+    ts_query_cursor_exec(cursor, query, root_node); 
+    TSNode nodes [MAX_STRUCT_DECLARATIONS];
+    int count = 0;
+    TSQueryMatch match;
+    while(ts_query_cursor_next_match(cursor,&match)){
+        for(u32 i = 0; i < match.capture_count; i++) {
+            u32 length;
+            const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
+            if(strcmp(cap,"struct_name")==0){
+                nodes[count++] = match.captures[i].node;
+            }
+        }
+    }
+    ts_query_cursor_delete(cursor);
+    ts_query_delete(query);
+
+    if(count == 0) return;
+
+    TSInputEdit edit = {0};
+    for(int i = count-1; i >= 0; i--){
+        edit_source_code(to,modified_source,nodes[i],&edit);
+        ts_tree_edit(info->tree,&edit);
+    }
+    TSTree *new_tree = get_new_tree(info,modified_source);
+    ts_tree_delete(info->tree);
+    info->tree = new_tree;
+    info->source_code = modified_source;
 
 }
 void change_struct_name(const char *struct_name,
@@ -557,15 +648,41 @@ void change_struct_name(const char *struct_name,
     }
     char *modified_source = malloc(strlen(info->source_code) + 1);
     strcpy(modified_source, info->source_code);
-    TSInputEdit edit = {0};
-    change_name_in_struct_declaration(modified_source, struct_node,to,&edit);
-    ts_tree_edit(info->tree, &edit);
-    
-    TSTree *new_tree = get_new_tree(info, modified_source);
-    ts_tree_delete(info->tree);
-    info->source_code = modified_source;
-    info->tree =  new_tree;
+    change_name_in_struct_declaration(modified_source, struct_node,to,info);
+    change_struct_name_in_program(struct_name,to,info,modified_source);
 }
+// void change_struct_field(const char *struct_name,
+//                     const char *from,
+//                     const char *to,
+//                     TSTreeInfo *info)
+// {
+//     TSNode root_node = ts_tree_root_node(info->tree);
+//     TSNode struct_node = find_struct_with_name(info->source_code,struct_name,root_node);
+//     if(ts_node_is_null(struct_node)) {
+//         return;
+//     }
+//     char *modified_source = malloc(strlen(info->source_code) + 1);
+
+//     strcpy(modified_source,info->source_code);
+//     TSInputEdit edit = {0};
+//     change_field_in_struct(modified_source, struct_node, from, to, &edit);
+//     ts_tree_edit(info->tree, &edit);
+//     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
+//     TSTree *tree1 = get_new_tree(info,modified_source);
+//     ts_tree_delete(info->tree);
+//     info->tree = tree1;
+
+//     TSNode new_root = ts_tree_root_node(info->tree);
+//     change_struct_field_in_program(modified_source,struct_name, from, to, &edit, new_root);
+//     // there should be ts_tree_edit(here)
+//     ts_tree_edit(info->tree,&edit);
+
+//     TSTree *tree2 = get_new_tree(info,modified_source);
+//     ts_tree_delete(info->tree);
+//     info->source_code = modified_source;
+//     info->tree =  tree2;
+// }
+
 void change_struct_field(const char *struct_name,
                     const char *from,
                     const char *to,
@@ -583,11 +700,11 @@ void change_struct_field(const char *struct_name,
     change_field_in_struct(modified_source, struct_node, from, to, &edit);
     ts_tree_edit(info->tree, &edit);
     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
-    TSTree *tree1 = get_new_tree(info,modified_source);
-    ts_tree_delete(info->tree);
-    info->tree = tree1;
+    TSTree *tree1 = get_new_tree(info,modified_source);// create a new tree 
+    ts_tree_delete(info->tree); // delete the old tree 
+    info->tree = tree1; // set the new tree in info 
 
-    TSNode new_root = ts_tree_root_node(info->tree);
+    TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
     change_struct_field_in_program(modified_source,struct_name, from, to, &edit, new_root);
     // there should be ts_tree_edit(here)
     ts_tree_edit(info->tree,&edit);
