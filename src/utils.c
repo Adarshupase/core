@@ -19,20 +19,40 @@ String_Builder sb_init()
 
 void sb_append(String_Builder *sb, const char *string) 
 {
-    int old_size = sb->size;
-    int new_size = old_size + strlen(string);
-    sb->string = realloc(sb->string, new_size + 1);
-    strcpy(sb->string + old_size, string);
+    if(!string) return;
+    size_t length = strlen(string);
+    size_t old_size = sb->size;
+    size_t new_size = old_size + length;
+    char *new_buf = realloc(
+        sb->string,
+        new_size + 1
+    );
+    if(!new_buf) {
+        perror("realloc");
+        exit(1);
+    }
+    sb->string = new_buf;
+    memcpy(sb->string + old_size, string, length);
+    sb->string[new_size] = '\0';
     sb->size = new_size;
 }
 
-void sb_append_till(String_Builder *sb, const char *string, int length) 
+void sb_append_till(String_Builder *sb, const char *string, size_t length) 
 {
-    if(length <= 0) return;
+    if(!string || length <= 0) return;
 
-    int old_size = sb->size;
-    int new_size = old_size + length;
-    sb->string = realloc(sb->string, new_size +1);
+    size_t old_size = sb->size;
+    size_t new_size = old_size + length;
+
+    char *new_buf = realloc(
+        sb->string, 
+        new_size + 1
+    );
+    if(!new_buf) {
+        perror("realloc");
+        exit(1);
+    }
+    sb->string = new_buf;
 
     memcpy(sb->string + old_size, string, length);
     sb->string[new_size] = '\0';

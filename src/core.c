@@ -10,7 +10,7 @@
 typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINION_SIZE 1000
-#define TOTAL_CORE_COMMANDS 1
+#define TOTAL_CORE_COMMANDS 2
 #define MAX_STRUCT_DECLARATIONS 100
 #define TS_NODE_SLICE(node, start, end, size) \
     do {                                     \
@@ -21,9 +21,9 @@ typedef uint32_t u32;
 
 char *array[MAX_DEFINION_SIZE] = {NULL};
 int array_size = 0;
-char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field"};
-COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD};
-int core_command_arguments[TOTAL_CORE_COMMANDS] = {3};
+char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field", "change_struct_name"};
+COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD, CHANGE_STRUCT_NAME};
+int core_command_arguments[TOTAL_CORE_COMMANDS] = {3,2};
 
 
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
@@ -72,7 +72,8 @@ TSQuery *struct_declaration_query(const char *struct_name)
     sb_append(&sb, "\")) @struct_declaration");
 
     const char *query_string = sb.string;
-    TSQueryError error_type; u32 error_offset;
+    u32 error_offset;
+    TSQueryError error_type;
     TSQuery *query = ts_query_new(
         tree_sitter_c(), 
         query_string, 
@@ -81,6 +82,18 @@ TSQuery *struct_declaration_query(const char *struct_name)
         &error_type
     );
 
+    if(!query) {
+        fprintf(stderr,
+            "Query error %d at offset %u\n",
+             error_type, 
+             error_offset
+        );
+        sb_free(&sb);
+        return NULL;
+    }
+    // footgun or something
+
+
     return query;
     
 }
@@ -88,6 +101,7 @@ TSQuery *struct_declaration_query(const char *struct_name)
 void find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
 {
     TSQuery *query = struct_declaration_query(struct_name);
+    
     TSQueryCursor *cursor = ts_query_cursor_new();
     TSQueryMatch match;
 
@@ -143,6 +157,8 @@ void print_tree(TSNode root_node)
 {
     traverse(root_node, 0);
 }
+
+
 
 // print tree using cursor 
 void print_tree_with_cursor(TSTreeCursor *tree_cursor) 
@@ -376,6 +392,9 @@ void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *in
             case CHANGE_STRUCT_FIELD:
                 change_struct_field(commands[i].args[0],commands[i].args[1],commands[i].args[2],info);
                 break;
+            case CHANGE_STRUCT_NAME:
+                change_struct_name(commands[i].args[0],commands[i].args[1],info);
+                break;
             case ARGUMENT_MISMATCH:
                 fprintf(stderr,"command %s failed arguments mismatch\n",commands[i].command);
                 return;
@@ -605,6 +624,7 @@ void change_struct_name_in_program(const char *struct_name,const char *to, TSTre
 
     // TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
 
+
     TSNode root_node = ts_tree_root_node(info->tree);
     TSQuery *query = struct_declaration_query(struct_name);
     TSQueryCursor *cursor = ts_query_cursor_new(); 
@@ -721,4 +741,5 @@ void ts_cleanup(TSTreeInfo *info)
     ts_parser_delete(info->parser);
     info->tree = NULL;
     info->parser = NULL;
+
 }

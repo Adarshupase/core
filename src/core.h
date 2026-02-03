@@ -11,6 +11,7 @@ typedef struct {
 
 typedef enum {
     CHANGE_STRUCT_FIELD,
+    CHANGE_STRUCT_NAME,
     COMMAND_NOT_FOUND,
     ARGUMENT_MISMATCH,
     COMMAND_FOUND

@@ -3,12 +3,12 @@
 #include <stdio.h>
 typedef struct {
     char *string;
-    int size;
+    size_t size;
 } String_Builder;
 
 
 void sb_append(String_Builder *sb, const char *string) ;
-void sb_append_till(String_Builder *sb, const char *string, int length) ;
+void sb_append_till(String_Builder *sb, const char *string, size_t length) ;
 String_Builder sb_init() ;
 void sb_free(String_Builder *sb);
 char *read_entire_file(const char *file_path);
