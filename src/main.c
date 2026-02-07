@@ -98,6 +98,7 @@ int main(int argc, char *argv[])
     TSQueryCursor *query_cursor = ts_query_cursor_new();
     TSNode struct_node = find_struct_with_name(info.source_code, "Entity", root_node);
     
+    if (!ts_node_is_null(struct_node)) {
     ts_query_cursor_exec(query_cursor,query,struct_node);
     TSQueryMatch match;
     while(ts_query_cursor_next_match(query_cursor,&match)){
@@ -114,6 +115,7 @@ int main(int argc, char *argv[])
             }
         }
     }
+    }
     
     // printf("----------------------------DEBUG_INFO--------------------------------------------------\n");
     // printf("____________________________BEFORE-CHANGE________________________________________________\n");
@@ -124,12 +126,6 @@ int main(int argc, char *argv[])
     // change_struct_field("Halwa","m","n",&info);
     // change_struct_field("Halwa","e","f",&info);
     // change_struct_field("Halwa","s","t",&info);
-
-    if(argc > 1) {
-        const char *file_name = argv[1];
-        write_modified_string_to_file(file_name,info.source_code);
-    }
-
 
     root_node = ts_tree_root_node(info.tree);
     
@@ -143,6 +139,7 @@ int main(int argc, char *argv[])
     
     Core_Command *commands = parse_commands("core.txt",&total_commands);
     
+    if (commands) {
     print_commands(commands,total_commands);
     execute_commands(commands,total_commands,&info);
     // change_struct_name("Entity","Component",&info);
@@ -153,6 +150,7 @@ int main(int argc, char *argv[])
         write_modified_string_to_file(file_name,info.source_code);
     }
     free_commands(commands,total_commands);
+    }
     free(node_string);
     ts_query_delete(query);
     ts_tree_cursor_delete(&tree_cursor);
