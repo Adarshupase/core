@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <ctype.h>
 
+#include "hash_table.h"
 #include "core.h"
 
 // static int times = 0;
@@ -21,12 +22,21 @@ typedef uint32_t u32;
     } while (0)
 
 char *array[MAX_DEFINION_SIZE] = {NULL};
+
 int array_size = 0;
 char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field", "change_struct_name"};
 COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD, CHANGE_STRUCT_NAME};
 int core_command_arguments[TOTAL_CORE_COMMANDS] = {3,2};
 
-
+// function arguments in comments are referred to as @(arg_name)
+// example:
+/*
+  get_node_type(Node node) 
+  {
+        // @(node) is a tree node.
+        ....      
+  }
+*/
 
 
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
@@ -39,7 +49,8 @@ TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
 }
 
 void insert_into_array(const char *string) 
-{   char *dup_string = strndup(string,strlen(string));
+{   
+    char *dup_string = strndup(string,strlen(string));
     if(array_size > MAX_DEFINION_SIZE-1) {
         return;
     }
@@ -101,12 +112,13 @@ TSQuery *struct_declaration_query(const char *struct_name)
     
 }
 
-void find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
+static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
 {
     TSQuery *query = struct_declaration_query(struct_name);
     
     TSQueryCursor *cursor = ts_query_cursor_new();
     TSQueryMatch match;
+    Hash_Table *struct_declarations = create_table(MAX_DEFINION_SIZE);
 
     ts_query_cursor_exec(cursor, query, root_node);
 
@@ -126,13 +138,15 @@ void find_all_struct_declarations(const char *struct_name, TSNode root_node,cons
             TS_NODE_SLICE(named_node,start_byte, end_byte,slice_size);
             
             char *string = strndup(modified_source + start_byte, slice_size);
-            insert_into_array(string);
+            insert_into_table(struct_declarations,string,"1");
+            // insert_into_array(string);
             free(string);
             string = NULL;
         }
     }
     ts_query_cursor_delete(cursor);
     ts_query_delete(query);
+    return struct_declarations;
 
 }
 
@@ -456,7 +470,11 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
     TSQueryCursor *cursor = ts_query_cursor_new();
     TSQueryMatch match;
 
-    find_all_struct_declarations(struct_name, root_node, modified_source);
+    Hash_Table *struct_declarations =  find_all_struct_declarations(struct_name, root_node, modified_source);
+
+    // this finds all the struct declarations of type struct_name variable_name and stores the variable name as a string and then 
+    // goes through the program and finds the wherever the variable_name is used to 
+    // access a field if the field_is @(from) and change it to @(to) 
     ts_query_cursor_exec(cursor, query, root_node);
     while(ts_query_cursor_next_match(cursor, &match)){
         TSNode identifier_node = {0};
@@ -472,12 +490,13 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
             TS_NODE_SLICE(identifier_node, start_byte, end_byte,slice_size);
             TS_NODE_SLICE(field_node, field_start_byte, field_end_byte, field_size);
             char *string = strndup(modified_source + start_byte, slice_size);
-            if(find_in_array(string)) {
+            if(get_from_table_or_null(struct_declarations,string)) {
                 if (strncmp(modified_source + field_start_byte, from, field_size) == 0 && from[field_size] == '\0')
                 {
                     edit_source_code(to, modified_source_ptr, field_node, edit);
                     free(string);
-                    cleanup();
+                    // cleanup();
+                    destroy_table(struct_declarations);
                     ts_query_cursor_delete(cursor);
                     ts_query_delete(query);
                     return;
@@ -486,7 +505,8 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
             free(string);
         }
     }
-    cleanup();
+    destroy_table(struct_declarations);
+    // cleanup();
     ts_query_cursor_delete(cursor);
     ts_query_delete(query);
 }
@@ -824,6 +844,20 @@ void change_struct_name_in_program(const char *struct_name,const char *to, TSTre
     // printf("RUNNING %dth tiMe\n",times++);
     // debug_tree(ts_tree_root_node(info->tree),info->source_code);
 }
+
+// void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) 
+// {
+//     const char *query_string = "(function_declarator declarator:(identifier) @func_name)";
+//     u32 error_offset;
+//     TSQueryError error_type;
+//     TSQuery *query = ts_query_new(
+//         tree_sitter_c(), 
+//         query_string, 
+//         strlen(query_string),
+//         &error_offset,
+//         &error_type
+//     );
+// }
 void change_struct_name(const char *struct_name,
                     const char *to,
                     TSTreeInfo *info)
