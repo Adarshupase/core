@@ -1,8 +1,9 @@
-
-#include <string.h>
-#include <stdio.h>
 #include "utils.h"
 #include "core.h"
+#include "cmd.h"
+#include <string.h>
+#include <stdio.h>
+
 typedef uint32_t u32; 
 
 #define VERBOSE 0
@@ -141,6 +142,7 @@ int main(int argc, char *argv[])
     
     if (commands) {
     print_commands(commands,total_commands);
+    initialize_commands();
     execute_commands(commands,total_commands,&info);
     // change_struct_name("Entity","Component",&info);
     // change_struct_field("Entity","a","good_field",&info);

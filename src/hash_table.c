@@ -4,7 +4,7 @@
 #include <string.h>
 
 
-// simple hash function for now because we are not gamedevs(yet)
+
 static size_t get_string_hash(const char *s) 
 {
     size_t hash = 0;
@@ -38,21 +38,20 @@ Hash_Table *create_table(size_t size)
 
 
 
-void insert_into_table(Hash_Table *table, const char *key, const char *value) 
+void insert_into_table(Hash_Table *table, const char *key, void *value) 
 {
     size_t hash = get_string_hash(key) % table->size;
     // get the hash of the string 
     int first_deleted = -1;
     
     for(size_t i = 0; i < table->size; i++) {
-        size_t index = (hash + i * i) % table->size;
+        size_t index = (hash + i) % table->size;
 
         Entry *entry = &table->entries[index];
 
         if(entry->state == OCCUPIED) {
             if(strcmp(entry->key,key) == 0){
-                free(entry->value);
-                entry->value = strdup(value);
+                entry->value = value;
                 return;
             }
         } else if(entry->state == DELETED){
@@ -66,7 +65,7 @@ void insert_into_table(Hash_Table *table, const char *key, const char *value)
 
             entry = &table->entries[index];
             entry->key = strdup(key);
-            entry->value = strdup(value);
+            entry->value =value;
             entry->state = OCCUPIED;
             table->count++;
             return;
@@ -75,17 +74,17 @@ void insert_into_table(Hash_Table *table, const char *key, const char *value)
     if(first_deleted != -1) {
         Entry *entry = &table->entries[first_deleted];
         entry->key = strdup(key);
-        entry->value = strdup(value);
+        entry->value = value;
         entry->state = OCCUPIED;
         table->count++;
     }
 }
 
-const char *get_from_table_or_null(Hash_Table *table, const char *key) 
+void *get_from_table_or_null(Hash_Table *table, const char *key) 
 {
     size_t hash = get_string_hash(key) % table->size;
     for(size_t i = 0; i < table->size; ++i) {
-        size_t index = (hash + i *i) % table->size;
+        size_t index = (hash + i ) % table->size;
         Entry *entry = &table->entries[index];
 
         if(entry->state == EMPTY) {
@@ -104,7 +103,7 @@ void remove_from_table(Hash_Table *table, const char *key)
     size_t hash = get_string_hash(key) % table->size;
 
     for(size_t i = 0; i < table->size; ++i) {
-        size_t index = (hash + i * i) % table->size;
+        size_t index = (hash + i ) % table->size;
         Entry *entry = &table->entries[index];
 
         if(entry->state ==  EMPTY) {
@@ -113,7 +112,6 @@ void remove_from_table(Hash_Table *table, const char *key)
 
         if((entry->state == OCCUPIED)&& (strcmp(entry->key, key)==0)) {
             free(entry->key);
-            free(entry->value);
             entry->key = NULL;
             entry->value = NULL;
 
@@ -132,7 +130,7 @@ void destroy_table(Hash_Table *table)
         // frickin double free
         if(entry->state == OCCUPIED) {
             free(entry->key);
-            free(entry->value);
+            // free(entry->value);
         }
     }
     free(table->entries);

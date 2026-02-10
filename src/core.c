@@ -12,7 +12,6 @@
 typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINION_SIZE 1000
-#define TOTAL_CORE_COMMANDS 2
 #define MAX_STRUCT_DECLARATIONS 1000
 #define TS_NODE_SLICE(node, start, end, size) \
     do {                                     \
@@ -21,12 +20,6 @@ typedef uint32_t u32;
         (size)  = (end) - (start);          \
     } while (0)
 
-char *array[MAX_DEFINION_SIZE] = {NULL};
-
-int array_size = 0;
-char *core_commands[TOTAL_CORE_COMMANDS] = {"change_struct_field", "change_struct_name"};
-COMMAND_TYPE core_commands_enum[TOTAL_CORE_COMMANDS] = {CHANGE_STRUCT_FIELD, CHANGE_STRUCT_NAME};
-int core_command_arguments[TOTAL_CORE_COMMANDS] = {3,2};
 
 // function arguments in comments are referred to as @(arg_name)
 // example:
@@ -48,34 +41,8 @@ TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
     );
 }
 
-void insert_into_array(const char *string) 
-{   
-    char *dup_string = strndup(string,strlen(string));
-    if(array_size > MAX_DEFINION_SIZE-1) {
-        return;
-    }
-    array[array_size++] = dup_string;
-}
 
-bool find_in_array(const char *string) 
-{
-    for(int i = 0; i < array_size; i++) {
-        if(strcmp(array[i],string) == 0) {
-            return true;
-        } 
-    }
-    return false;
-}
-void cleanup()
-{
-    for(int i = 0; i < array_size; i++){
-        if(array[i] != NULL) {
-            free(array[i]);
-            array[i] = NULL;
-        }
-    }
-    array_size = 0;
-}
+
 
 TSQuery *struct_declaration_query(const char *struct_name)
 {
@@ -138,8 +105,7 @@ static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode 
             TS_NODE_SLICE(named_node,start_byte, end_byte,slice_size);
             
             char *string = strndup(modified_source + start_byte, slice_size);
-            insert_into_table(struct_declarations,string,"1");
-            // insert_into_array(string);
+            insert_into_table(struct_declarations,string,(void *)1);
             free(string);
             string = NULL;
         }
@@ -237,64 +203,7 @@ void debug_tree(TSNode root_node, const char *source)
 {
     traverse_and_debug(root_node,0, source);
 }
-// change the field name in struct definition only 
 
-
-// void edit_source_code(const char *to, char *modified, TSNode name_node,TSInputEdit *edit)
-// {
-//     u32 start_byte, end_byte, slice_size;
-//     TS_NODE_SLICE(name_node,start_byte,end_byte,slice_size);
-//     size_t new_slice_size = strlen(to);
-//     if(new_slice_size != slice_size){
-//         memmove(
-//         modified + start_byte + new_slice_size,
-//         modified + end_byte, 
-//         strlen(modified) - end_byte + 1
-//         );
-//     }
-//     memcpy(modified + start_byte, to, new_slice_size);
-//     edit->start_byte = start_byte;
-//     edit->old_end_byte = end_byte;
-//     edit->new_end_byte = start_byte+ new_slice_size;
-//     edit->start_point = ts_node_start_point(name_node);
-//     edit->old_end_point = ts_node_end_point(name_node);
-//     TSPoint start = ts_node_start_point(name_node);
-
-//     edit->new_end_point = (TSPoint){
-//         .row = start.row,
-//         .column = start.column + new_slice_size
-//     };
-// }
-// static void edit_source_code_raw(
-//     const char *to, 
-//     char **modified_ptr,
-//     u32 start, 
-//     u32 end)
-// {
-//     char *buffer = *modified_ptr;
-
-//     size_t old_length = end - start;
-//     size_t new_length = strlen(to);
-//     size_t total_length = strlen(buffer);
-
-//     if(new_length != old_length) {
-//         size_t new_total = total_length- old_length + new_length + 1;
-
-//         char *new_buffer = realloc(buffer,new_total);
-//         assert(new_buffer);
-//         buffer = new_buffer;
-
-//         memmove(
-//             buffer + start + new_length,
-//             buffer + end,
-//             total_length - end + 1
-//         );
-
-//         *modified_ptr = buffer;
-//     }
-
-//     memcpy(buffer + start , to, new_length);
-// }
 
 static TSPoint point_from_byte_offset(const char *source, u32 byte_offset)
 {
@@ -510,152 +419,8 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
     ts_query_cursor_delete(cursor);
     ts_query_delete(query);
 }
-void print_commands(Core_Command *commands, int total) 
-{
-    for(int i = 0; i < total; i++) {
-        printf("Command: %s\n", commands[i].command);
-        printf("Args (%d): ", commands[i].number_of_arguments);
-        for(int j = 0; j < commands[i].number_of_arguments; j++) {
-            printf("%s", commands[i].args[j]);
-            if(j + 1 < commands[i].number_of_arguments) {
-                printf(", ");
-            }
-            printf("\n");
-        }
-    }
-}
 
 
-COMMAND_TYPE search_for_command(const char *string, int number_of_arguments){
-    for(int i = 0; i < TOTAL_CORE_COMMANDS; i++) {
-        if((strcmp(core_commands[i],string)==0)){
-            if(core_command_arguments[i]==number_of_arguments){
-                return core_commands_enum[i];
-            } else {
-                return ARGUMENT_MISMATCH;
-            }
-        }
-    }
-    return COMMAND_NOT_FOUND;
-    
-}
-void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *info) 
-{
-    for(int i = 0; i < total_commands; i++) {
-        COMMAND_TYPE command = search_for_command(commands[i].command, commands[i].number_of_arguments);
-            switch (command)
-            {
-            case CHANGE_STRUCT_FIELD:
-                change_struct_field(commands[i].args[0],commands[i].args[1],commands[i].args[2],info);
-                
-                break;
-            case CHANGE_STRUCT_NAME:
-                change_struct_name(commands[i].args[0],commands[i].args[1],info);
-                break;
-            case ARGUMENT_MISMATCH:
-                fprintf(stderr,"command %s failed arguments mismatch\n",commands[i].command);
-                return;
-            case COMMAND_NOT_FOUND:
-                fprintf(stderr,
-                "Error: unknown command '%s'\n",
-                commands[i].command);
-            return;
-
-            
-            default:
-                printf("%s\n",info->source_code);
-                break;
-            }
-    }
-    
-}
-
-Core_Command *parse_commands(const char *filename, int *total_commands)
-{
-    *total_commands = 0;
-    char *source = read_entire_file(filename);
-    if(source == NULL) {
-        perror("Can't read file\n");
-        return NULL;
-    }
-    int capacity = 0;
-    for(char *p = source ; *p;) {
-        while(*p && isspace((unsigned char)*p))p++;
-        if(!*p) break;
-        capacity++;
-        while(*p && *p != '\n') p++;
-    }
-    if(capacity == 0) {
-        free(source);
-        return NULL;
-    }
-    Core_Command *commands = calloc(capacity, sizeof(Core_Command));
-
-    char *copy = strdup(source);
-    char *save_line;
-    char *line = strtok_r(copy, "\n", &save_line);
-
-    int count = 0;
-
-    while(line) {
-        char *l = trim(line);
-
-        if(*l == '\0') {
-            line = strtok_r(NULL, "\n", &save_line);
-            continue;
-        }
-        char *open = strchr(l, '(');
-        char *close = strchr(l, ')');
-
-        if(!open || !close || close < open) {
-            line = strtok_r(NULL, "\n",&save_line);
-            continue;
-        }
-        *open = '\0';
-        *close = '\0';
-
-        commands[count].command = strdup(trim(l));
-        char *args_str = trim(open + 1);
-        int argc = 0;
-        if(*args_str) {
-            argc = 1;
-            for(char *p = args_str; *p; p++) {
-                if(*p == ',') argc++;
-            }
-        }
-        commands[count].number_of_arguments = argc;
-        commands[count].args = malloc(sizeof(char *) * argc);
-
-        char *save_arg;
-        char *arg = strtok_r(args_str,",",&save_arg);
-        int i = 0;
-        while(arg) {
-            commands[count].args[i++] = strdup(trim(arg));
-            arg = strtok_r(NULL, ",", &save_arg);
-        }
-        count++;
-
-        line = strtok_r(NULL, "\n",&save_line);
-
-    }
-    free(copy);
-    free(source);
-
-    *total_commands = count;
-    return commands; 
-}
-
-void free_commands(Core_Command *commands, int total) 
-{
-    for(int i = 0; i < total; i++) {
-        free(commands[i].command);
-        for(int j = 0; j < commands[i].number_of_arguments; j++) {
-            free(commands[i].args[j]);
-        }
-        free(commands[i].args);
-    }
-    free(commands);
-}
 TSNode find_child_node_of_type(TSNode node, const char *type)
 {
     if(strcmp(ts_node_type(node),type)==0) return node;
@@ -739,40 +504,6 @@ void change_name_in_struct_declaration(
 }
 
 
-// void change_struct_name_in_program(const char *struct_name,const char *to, TSTreeInfo *info,char *modified_source)
-// {
-//     // TSTree *tree1 = get_new_tree(info,modified_source);// create a new tree 
-//     // ts_tree_delete(info->tree); // delete the old tree 
-//     // info->tree = tree1; // set the new tree in info 
-
-//     // TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
-
-//     TSNode root_node = ts_tree_root_node(info->tree);
-//     TSQuery *query = struct_declaration_query(struct_name);
-//     TSQueryCursor *cursor = ts_query_cursor_new(); 
-//     ts_query_cursor_exec(cursor, query, root_node); 
-//     TSQueryMatch match;
-//     while(ts_query_cursor_next_match(cursor,&match)){
-//         for(u32 i = 0; i < match.capture_count; i++) {
-//             u32 length;
-//             const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
-//             if(strcmp(cap,"struct_name")==0){
-//                 TSNode name_node = match.captures[i].node;
-//                 if(ts_node_is_null(name_node)) printf("Not FOUND\n");
-//                 TSInputEdit edit = {0};
-//                 edit_source_code(to,modified_source,name_node,&edit);
-//                 ts_tree_edit(info->tree,&edit);
-//                 TSTree *new_tree = get_new_tree(info,modified_source);
-//                 ts_tree_delete(info->tree);
-//                 info->tree = new_tree;
-//                 info->source_code = modified_source;
-//             }
-//         }
-//     }
-//     ts_query_cursor_delete(cursor);
-//     ts_query_delete(query);
-
-// }
 
 void change_struct_name_in_program(const char *struct_name,const char *to, TSTreeInfo *info,char *modified_source)
 {
@@ -845,19 +576,7 @@ void change_struct_name_in_program(const char *struct_name,const char *to, TSTre
     // debug_tree(ts_tree_root_node(info->tree),info->source_code);
 }
 
-// void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) 
-// {
-//     const char *query_string = "(function_declarator declarator:(identifier) @func_name)";
-//     u32 error_offset;
-//     TSQueryError error_type;
-//     TSQuery *query = ts_query_new(
-//         tree_sitter_c(), 
-//         query_string, 
-//         strlen(query_string),
-//         &error_offset,
-//         &error_type
-//     );
-// }
+
 void change_struct_name(const char *struct_name,
                     const char *to,
                     TSTreeInfo *info)
@@ -874,37 +593,7 @@ void change_struct_name(const char *struct_name,
 }
 
 
-// void change_struct_field(const char *struct_name,
-//                     const char *from,
-//                     const char *to,
-//                     TSTreeInfo *info)
-// {
-//     TSNode root_node = ts_tree_root_node(info->tree);
-//     TSNode struct_node = find_struct_with_name(info->source_code,struct_name,root_node);
-//     if(ts_node_is_null(struct_node)) {
-//         return;
-//     }
-//     char *modified_source = malloc(strlen(info->source_code) + 1);
 
-//     strcpy(modified_source,info->source_code);
-//     TSInputEdit edit = {0};
-//     change_field_in_struct(modified_source, struct_node, from, to, &edit);
-//     ts_tree_edit(info->tree, &edit);
-//     //@TODO(field doesn't change when struct is declared using {struct Type identifier = {.x = 3, .y = 4})}
-//     TSTree *tree1 = get_new_tree(info,modified_source);
-//     ts_tree_delete(info->tree);
-//     info->tree = tree1;
-
-//     TSNode new_root = ts_tree_root_node(info->tree);
-//     change_struct_field_in_program(modified_source,struct_name, from, to, &edit, new_root);
-//     // there should be ts_tree_edit(here)
-//     ts_tree_edit(info->tree,&edit);
-
-//     TSTree *tree2 = get_new_tree(info,modified_source);
-//     ts_tree_delete(info->tree);
-//     info->source_code = modified_source;
-//     info->tree =  tree2;
-// }
 
 void change_struct_field(const char *struct_name,
                     const char *from,
