@@ -25,6 +25,7 @@ void change_field_in_struct(char **modified_ptr, TSNode node, const char *from,
                              const char *to, TSInputEdit *edit);
 void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
 void change_struct_name(const char *struct_name,const char *to,TSTreeInfo *info);
+void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) ;
 void change_name_in_struct_declaration(
     char **modified_ptr,
     TSNode struct_node,

@@ -30,7 +30,34 @@ typedef uint32_t u32;
         ....      
   }
 */
+typedef enum {
+    FUNCTION_DECLARATION,
+    FUNCTION_DEFINITION
+} Function_Type;
+const char *get_error_type(TSQueryError error_type) 
+{
+    switch(error_type) {
+        case TSQueryErrorNone:      return "TSQueryErrorNone";
+        case TSQueryErrorSyntax:    return "TSQueryErrorSyntax";
+        case TSQueryErrorNodeType:  return "TSQueryErrorNodeType";
+        case TSQueryErrorField:     return "TSQueryErrorField";
+        case TSQueryErrorCapture:   return "TSQueryErrorCapture";
+        case TSQueryErrorStructure: return "TSQueryErrorStructure";
+        case TSQueryErrorLanguage:  return "TSQueryErrorLanguage";
+        default: return "UNKNOWN";
+    }
+}
 
+void query_error(const char *string, TSQueryError error_type, u32 error_offset) 
+{
+    fprintf(stderr,
+    "Error: Creating query from string %s of type %s at offset %d\n",
+        string,
+        get_error_type(error_type),
+        error_offset
+    );
+    exit(EXIT_FAILURE);
+}
 
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
     return ts_parser_parse_string(
@@ -442,9 +469,10 @@ TSNode find_child_node_of_type(TSNode node, const char *type)
 }
 
 
+
 TSNode find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
 { 
-    const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct"; 
+    const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct";
     TSQueryError error_type; u32 error_offset; 
     TSQuery *query = ts_query_new( 
         tree_sitter_c(), 
@@ -478,6 +506,9 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
             } 
         } 
     } 
+    if(!ts_node_is_null(result)) {
+        printf("Node is not null\n");
+    }
     ts_query_cursor_delete(cursor); 
     ts_query_delete(query); 
     return result; 
@@ -584,7 +615,9 @@ void change_struct_name(const char *struct_name,
     TSNode root_node = ts_tree_root_node(info->tree);
     TSNode struct_node = find_struct_with_name(info->source_code,struct_name, root_node);
     if(ts_node_is_null(struct_node)){
-        return;
+        fprintf(stderr,
+        "No struct with name: %s exiting....\n",struct_name);
+        exit(EXIT_FAILURE);
     }
     char *modified_source = malloc(strlen(info->source_code) + 1);
     strcpy(modified_source, info->source_code);
@@ -594,6 +627,116 @@ void change_struct_name(const char *struct_name,
 
 
 
+static TSNode find_function_with_name(
+    Function_Type function_type,
+    const char *source,
+    const char *function_name,
+    TSNode root_node)
+{
+    const char *query_string =  "(declaration)  @decl";
+    if(function_type == FUNCTION_DEFINITION) {
+        query_string = "(function_definition) @decl";
+                         
+    }
+    u32 error_offset;
+    TSQueryError error_type;
+
+    TSQuery *query = ts_query_new(
+        tree_sitter_c(),
+        query_string,
+        strlen(query_string),
+        &error_offset,
+        &error_type
+    );
+
+    if(!query) {
+        query_error(query_string,error_type,error_offset);
+    }
+    TSQueryCursor *cursor = ts_query_cursor_new();
+    ts_query_cursor_exec(cursor,query,root_node);
+
+    TSQueryMatch match;
+    TSNode result = {0};
+
+    while(ts_query_cursor_next_match(cursor,&match)) {
+        TSNode name_node = {0};
+        TSNode function_node = {0};
+
+        for(u32 i = 0; i < match.capture_count; ++i) {
+            u32 length;
+            const char *cap = ts_query_capture_name_for_id(
+                query,
+                match.captures[i].index,
+                &length 
+            );
+            if(strcmp(cap,"decl") == 0) {
+                TSNode decl_node = match.captures[i].node;
+                TSNode maybe_named_node = find_child_node_of_type(decl_node,"function_declarator");
+
+                if(!ts_node_is_null(maybe_named_node)){
+                    function_node = maybe_named_node;
+                }
+            }
+        }
+        if(!ts_node_is_null(function_node)){
+            u32 start,end,slice_size;
+            name_node = find_child_node_of_type(function_node,"identifier");
+            if(ts_node_is_null(name_node)) {
+                fprintf(stderr,
+                "No named child for function");
+            }
+            TS_NODE_SLICE(name_node,start,end,slice_size);
+            if (strncmp(source + start, function_name, slice_size) == 0 && function_name[slice_size] == '\0') 
+            {
+                result = function_node;
+                break;
+            }
+        }
+    }
+    ts_query_cursor_delete(cursor);
+    ts_query_delete(query);
+    return result;
+}
+static void change_function_name_in_declaration_or_definition(char **modified_ptr,
+    TSNode function_node,
+    const char *to,
+    TSTreeInfo *info) 
+{
+    TSInputEdit edit = {0};
+    TSNode named_node = find_child_node_of_type(function_node,"identifier");
+    edit_source_code(to,modified_ptr,named_node,&edit);
+    ts_tree_edit(info->tree,&edit);
+    TSTree *new_tree = get_new_tree(info,*modified_ptr);
+    info->tree = new_tree;
+    info->source_code = *modified_ptr;
+}
+void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) 
+{
+    printf("Change function name\n");
+    TSNode root_node = ts_tree_root_node(info->tree);
+    printf("%s\n",info->source_code);
+    TSNode declaration_node = find_function_with_name(FUNCTION_DECLARATION, info->source_code,function_name,root_node);
+    if(ts_node_is_null(declaration_node)){
+        fprintf(stderr,
+        "No function with name %s exiting...\n",function_name);
+        exit(EXIT_FAILURE);
+    }
+    char *modified_source = malloc(strlen(info->source_code) + 1);
+    strcpy(modified_source,info->source_code);
+    change_function_name_in_declaration_or_definition(&modified_source,declaration_node,to,info);
+    TSNode definition_node = find_function_with_name(FUNCTION_DEFINITION, info->source_code,function_name,root_node);
+    if(ts_node_is_null(definition_node)){
+        fprintf(stderr,
+        "No function with name %s exiting...\n",function_name);
+        exit(EXIT_FAILURE);
+    }
+    char *modified_source2 = malloc(strlen(info->source_code) + 1);
+    strcpy(modified_source2,info->source_code);
+    change_function_name_in_declaration_or_definition(&modified_source2,definition_node,to,info);
+
+    // change_function_name_in_program
+
+}
 
 void change_struct_field(const char *struct_name,
                     const char *from,

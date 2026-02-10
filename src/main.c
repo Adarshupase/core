@@ -141,17 +141,24 @@ int main(int argc, char *argv[])
     Core_Command *commands = parse_commands("core.txt",&total_commands);
     
     if (commands) {
-    print_commands(commands,total_commands);
-    initialize_commands();
-    execute_commands(commands,total_commands,&info);
-    // change_struct_name("Entity","Component",&info);
-    // change_struct_field("Entity","a","good_field",&info);
-    // change_struct_name("Entity","Component",&info);
-    if(argc > 1) {
-        const char *file_name = argv[1];
-        write_modified_string_to_file(file_name,info.source_code);
+        print_commands(commands,total_commands);
+        initialize_commands();
+        execute_commands(commands,total_commands,&info);
+        
+        printf("Reached here");
+        // change_struct_name("Entity","Component",&info);
+        // change_struct_field("Entity","a","good_field",&info);
+        // change_struct_name("Entity","Component",&info);
+        if(argc > 1) {
+            const char *file_name = argv[1];
+            write_modified_string_to_file(file_name,info.source_code);
+        }
+        free_commands(commands,total_commands);
     }
-    free_commands(commands,total_commands);
+    change_function_name("add","Subtract",&info);
+    if(argc > 1) {
+            const char *file_name = argv[1];
+            write_modified_string_to_file(file_name,info.source_code);
     }
     free(node_string);
     ts_query_delete(query);
