@@ -32,8 +32,9 @@ typedef uint32_t u32;
 */
 typedef enum {
     FUNCTION_DECLARATION,
-    FUNCTION_DEFINITION
-} Function_Type;
+    FUNCTION_DEFINITION,
+    STRUCT_DEFINITION,
+} Node_Type;
 const char *get_error_type(TSQueryError error_type) 
 {
     switch(error_type) {
@@ -71,15 +72,12 @@ TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
 
 
 
-TSQuery *struct_declaration_query(const char *struct_name)
-{
-    String_Builder sb = {0};
-    sb_append(&sb, "(declaration type: (struct_specifier name: (type_identifier) @struct_name) ");
-    sb_append(&sb, "(#eq? @struct_name \"");
-    sb_append(&sb, struct_name);
-    sb_append(&sb, "\")) @struct_declaration");
 
-    const char *query_string = sb.string;
+
+static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
+{
+    const char *query_string = "(declaration type: (struct_specifier name: (type_identifier) @struct_name) declarator: (identifier) @var_name) ";
+    
     u32 error_offset;
     TSQueryError error_type;
     TSQuery *query = ts_query_new(
@@ -91,25 +89,8 @@ TSQuery *struct_declaration_query(const char *struct_name)
     );
 
     if(!query) {
-        fprintf(stderr,
-            "Query error %d at offset %u\n",
-             error_type, 
-             error_offset
-        );
-        sb_free(&sb);
-        return NULL;
+        query_error(query_string,error_type,error_offset);
     }
-    // footgun or something
-
-
-    return query;
-    
-}
-
-static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
-{
-    TSQuery *query = struct_declaration_query(struct_name);
-    
     TSQueryCursor *cursor = ts_query_cursor_new();
     TSQueryMatch match;
     Hash_Table *struct_declarations = create_table(MAX_DEFINION_SIZE);
@@ -117,22 +98,28 @@ static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode 
     ts_query_cursor_exec(cursor, query, root_node);
 
     while(ts_query_cursor_next_match(cursor,&match)) {
-        TSNode named_node = {0}; 
-
+        TSNode struct_named_node = {0};
+        TSNode var_named_node = {0}; 
         for(u32 i = 0; i < match.capture_count; i++) {
             u32 length;
             const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index, &length);
-            if(strcmp(cap,"struct_declaration") == 0) {
-                TSNode node = match.captures[i].node;
-                named_node = find_child_node_of_type(node,"identifier");
+            if(strcmp(cap,"struct_name") == 0) {
+                struct_named_node = match.captures[i].node;
+            } else if(strcmp(cap,"var_name")==0) {
+                var_named_node = match.captures[i].node;
             }
         }
-        if(!ts_node_is_null(named_node)){
+        if(!ts_node_is_null(struct_named_node)){
             u32 start_byte, end_byte, slice_size;
-            TS_NODE_SLICE(named_node,start_byte, end_byte,slice_size);
-            
+            TS_NODE_SLICE(struct_named_node,start_byte, end_byte,slice_size);
             char *string = strndup(modified_source + start_byte, slice_size);
-            insert_into_table(struct_declarations,string,(void *)1);
+            if(strcmp(string,struct_name) ==0) {
+                u32 start_byte,end_byte,slice_size;
+                TS_NODE_SLICE(var_named_node,start_byte,end_byte,slice_size);
+                char *string = strndup(modified_source + start_byte,slice_size);
+                printf("----------------%s------------------",string);
+                insert_into_table(struct_declarations,string,(void *)1);
+            }
             free(string);
             string = NULL;
         }
@@ -627,17 +614,43 @@ void change_struct_name(const char *struct_name,
 
 
 
-static TSNode find_function_with_name(
-    Function_Type function_type,
+static TSNode find_node_with_name(
+    Node_Type node_type,
     const char *source,
-    const char *function_name,
+    const char *node_name,
     TSNode root_node)
 {
-    const char *query_string =  "(declaration)  @decl";
-    if(function_type == FUNCTION_DEFINITION) {
-        query_string = "(function_definition) @decl";
-                         
+    const char *query_string;
+    const char *child_node;
+    const char *named_string;
+
+    switch (node_type)
+    {
+    case FUNCTION_DECLARATION:
+        {
+            query_string = "(declaration)  @decl";
+            child_node   = "function_declarator";
+            named_string = "identifier";
+        }
+        break;
+    case FUNCTION_DEFINITION:
+        {
+            query_string = "(function_definition) @decl";
+            child_node   = "function_declarator";
+            named_string = "identifier";
+        }
+        break;
+    case STRUCT_DEFINITION:
+        {
+            query_string = "(struct_specifier) @decl";
+            child_node   = "struct_specifier";
+            named_string = "type_identifier";
+        }
+        break;
+    default:
+        break;
     }
+     
     u32 error_offset;
     TSQueryError error_type;
 
@@ -660,7 +673,7 @@ static TSNode find_function_with_name(
 
     while(ts_query_cursor_next_match(cursor,&match)) {
         TSNode name_node = {0};
-        TSNode function_node = {0};
+        TSNode parent_node = {0};
 
         for(u32 i = 0; i < match.capture_count; ++i) {
             u32 length;
@@ -671,24 +684,24 @@ static TSNode find_function_with_name(
             );
             if(strcmp(cap,"decl") == 0) {
                 TSNode decl_node = match.captures[i].node;
-                TSNode maybe_named_node = find_child_node_of_type(decl_node,"function_declarator");
+                TSNode maybe_named_node = find_child_node_of_type(decl_node,child_node);
 
                 if(!ts_node_is_null(maybe_named_node)){
-                    function_node = maybe_named_node;
+                    parent_node = maybe_named_node;
                 }
             }
         }
-        if(!ts_node_is_null(function_node)){
+        if(!ts_node_is_null(parent_node)){
             u32 start,end,slice_size;
-            name_node = find_child_node_of_type(function_node,"identifier");
+            name_node = find_child_node_of_type(parent_node,named_string);
             if(ts_node_is_null(name_node)) {
                 fprintf(stderr,
-                "No named child for function");
+                "No named child for the node");
             }
             TS_NODE_SLICE(name_node,start,end,slice_size);
-            if (strncmp(source + start, function_name, slice_size) == 0 && function_name[slice_size] == '\0') 
+            if (strncmp(source + start, node_name, slice_size) == 0 && node_name[slice_size] == '\0') 
             {
-                result = function_node;
+                result = parent_node;
                 break;
             }
         }
@@ -715,7 +728,7 @@ void change_function_name(const char *function_name, const char *to, TSTreeInfo 
     printf("Change function name\n");
     TSNode root_node = ts_tree_root_node(info->tree);
     printf("%s\n",info->source_code);
-    TSNode declaration_node = find_function_with_name(FUNCTION_DECLARATION, info->source_code,function_name,root_node);
+    TSNode declaration_node = find_node_with_name(FUNCTION_DECLARATION, info->source_code,function_name,root_node);
     if(ts_node_is_null(declaration_node)){
         fprintf(stderr,
         "No function with name %s exiting...\n",function_name);
@@ -724,7 +737,7 @@ void change_function_name(const char *function_name, const char *to, TSTreeInfo 
     char *modified_source = malloc(strlen(info->source_code) + 1);
     strcpy(modified_source,info->source_code);
     change_function_name_in_declaration_or_definition(&modified_source,declaration_node,to,info);
-    TSNode definition_node = find_function_with_name(FUNCTION_DEFINITION, info->source_code,function_name,root_node);
+    TSNode definition_node = find_node_with_name(FUNCTION_DEFINITION, info->source_code,function_name,root_node);
     if(ts_node_is_null(definition_node)){
         fprintf(stderr,
         "No function with name %s exiting...\n",function_name);
