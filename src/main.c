@@ -66,6 +66,8 @@ int main(int argc, char *argv[])
     };
 
     TSNode root_node = ts_tree_root_node(info.tree);
+    printf("--------------------------------DEBUGGING_TREE-----------------------------------");
+    traverse_and_debug(root_node,0,info.source_code);
     TSTreeCursor tree_cursor = ts_tree_cursor_new(root_node);
     if (VERBOSE) {
         if(CURSOR_MODE){

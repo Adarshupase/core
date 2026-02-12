@@ -37,6 +37,11 @@ typedef enum {
     FUNCTION_CALL,
     STRUCT_DECLARATION,
 } Node_Type;
+
+typedef struct {
+    TSQuery *query;
+    TSQueryCursor *cursor;
+} Query_Context;
 const char *get_error_type(TSQueryError error_type) 
 {
     switch(error_type) {
@@ -50,7 +55,6 @@ const char *get_error_type(TSQueryError error_type)
         default: return "UNKNOWN";
     }
 }
-
 void query_error(const char *string, TSQueryError error_type, u32 error_offset) 
 {
     fprintf(stderr,
@@ -61,6 +65,44 @@ void query_error(const char *string, TSQueryError error_type, u32 error_offset)
     );
     exit(EXIT_FAILURE);
 }
+Query_Context create_query_context (
+    const char *query_string,
+    TSNode root_node )
+{
+    Query_Context context = {0};
+    TSQueryError error_type;
+    u32 error_offset;
+
+    context.query = ts_query_new(
+        tree_sitter_c(),
+        query_string,
+        strlen(query_string),
+        &error_offset,
+        &error_type
+    );
+    if(!context.query) {
+        query_error(query_string,error_type,error_offset);
+        return context;
+    }
+
+    context.cursor = ts_query_cursor_new();
+    ts_query_cursor_exec(context.cursor,context.query,root_node);
+
+    return context;
+}
+
+void delete_query_context(Query_Context *context) 
+{
+    if(context->cursor) {
+        ts_query_cursor_delete(context->cursor);
+    }
+    if(context->query) {
+        ts_query_delete(context->query);
+    }
+}
+
+
+
 
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
     return ts_parser_parse_string(
@@ -79,32 +121,16 @@ TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
 static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
 {
     const char *query_string = "(declaration type: (struct_specifier name: (type_identifier) @struct_name) declarator: (identifier) @var_name) ";
-    
-    u32 error_offset;
-    TSQueryError error_type;
-    TSQuery *query = ts_query_new(
-        tree_sitter_c(), 
-        query_string, 
-        strlen(query_string),
-        &error_offset,
-        &error_type
-    );
-
-    if(!query) {
-        query_error(query_string,error_type,error_offset);
-    }
-    TSQueryCursor *cursor = ts_query_cursor_new();
+    Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
     Hash_Table *struct_declarations = create_table(MAX_DEFINION_SIZE);
 
-    ts_query_cursor_exec(cursor, query, root_node);
-
-    while(ts_query_cursor_next_match(cursor,&match)) {
+    while(ts_query_cursor_next_match(context.cursor,&match)) {
         TSNode struct_named_node = {0};
         TSNode var_named_node = {0}; 
         for(u32 i = 0; i < match.capture_count; i++) {
             u32 length;
-            const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index, &length);
+            const char *cap = ts_query_capture_name_for_id(context.query,match.captures[i].index, &length);
             if(strcmp(cap,"struct_name") == 0) {
                 struct_named_node = match.captures[i].node;
             } else if(strcmp(cap,"var_name")==0) {
@@ -126,8 +152,7 @@ static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode 
             string = NULL;
         }
     }
-    ts_query_cursor_delete(cursor);
-    ts_query_delete(query);
+    delete_query_context(&context);
     return struct_declarations;
 
 }
@@ -335,21 +360,9 @@ void change_field_in_struct(char **modified_ptr,
     char *modified = *modified_ptr;
     const char *query_string = "(field_declaration) @field_declaration";
 
-    TSQueryError error_type; u32 error_offset;
-
-    TSQuery *query = ts_query_new(
-        tree_sitter_c(),
-        query_string,
-        strlen(query_string),
-        &error_offset,
-        &error_type
-    );
-
-    TSQueryCursor *cursor = ts_query_cursor_new();
+    Query_Context context = create_query_context(query_string,node);
     TSQueryMatch match;
-
-    ts_query_cursor_exec(cursor, query, node);
-    while(ts_query_cursor_next_match(cursor, &match)){
+    while(ts_query_cursor_next_match(context.cursor, &match)){
         TSNode field_declaration_node   = match.captures[0].node;
 
         u32 n = ts_node_named_child_count(field_declaration_node);
@@ -362,14 +375,12 @@ void change_field_in_struct(char **modified_ptr,
             if (strncmp(modified + start_byte, from, slice_size) == 0 && from[slice_size] == '\0')
             {
                 edit_source_code(to, modified_ptr, name_node, edit);
-                ts_query_cursor_delete(cursor);
-                ts_query_delete(query);
+                delete_query_context(&context);
                 return;
             }
         }
     }
-    ts_query_cursor_delete(cursor);
-    ts_query_delete(query);
+    delete_query_context(&context);
 }
 
 
@@ -383,16 +394,7 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
     char *modified_source = *modified_source_ptr;
     const char *query_string = "(field_expression argument: (identifier) @identifier_name field: (field_identifier) @field_name)";
 
-    TSQueryError error_type; u32 error_offset;
-
-    TSQuery *query = ts_query_new(
-        tree_sitter_c(),
-        query_string,
-        strlen(query_string),
-        &error_offset,
-        &error_type
-    );
-    TSQueryCursor *cursor = ts_query_cursor_new();
+    Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
 
     Hash_Table *struct_declarations =  find_all_struct_declarations(struct_name, root_node, modified_source);
@@ -400,19 +402,19 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
     // this finds all the struct declarations of type struct_name variable_name and stores the variable name as a string and then 
     // goes through the program and finds the wherever the variable_name is used to 
     // access a field if the field_is @(from) and change it to @(to) 
-    ts_query_cursor_exec(cursor, query, root_node);
-    while(ts_query_cursor_next_match(cursor, &match)){
-        TSNode identifier_node = {0};
+    while(ts_query_cursor_next_match(context.cursor, &match)){
+        TSNode expr_node = {0};
         TSNode field_node  = {0};
         for(u32 i = 0; i < match.capture_count; i++){
              u32 length;
-             const char *cap = ts_query_capture_name_for_id( query, match.captures[i].index, &length );
-             if ((strcmp(cap, "identifier_name") == 0))  identifier_node =  match.captures[i].node;
+             const char *cap = ts_query_capture_name_for_id( context.query, match.captures[i].index, &length );
+             if ((strcmp(cap, "identifier_name") == 0))  expr_node =  match.captures[i].node;
              else if (strcmp(cap, "field_name") == 0) field_node = match.captures[i].node;
         }
-        if(!ts_node_is_null(identifier_node)) {
+        if(!ts_node_is_null(expr_node)) {
+
             u32 start_byte, end_byte, slice_size,field_start_byte, field_end_byte,field_size;
-            TS_NODE_SLICE(identifier_node, start_byte, end_byte,slice_size);
+            TS_NODE_SLICE(expr_node, start_byte, end_byte,slice_size);
             TS_NODE_SLICE(field_node, field_start_byte, field_end_byte, field_size);
             char *string = strndup(modified_source + start_byte, slice_size);
             if(get_from_table_or_null(struct_declarations,string)) {
@@ -422,8 +424,7 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
                     free(string);
                     // cleanup();
                     destroy_table(struct_declarations);
-                    ts_query_cursor_delete(cursor);
-                    ts_query_delete(query);
+                    delete_query_context(&context);
                     return;
                 }
             }
@@ -432,8 +433,7 @@ void change_struct_field_in_program(char **modified_source_ptr, const char *stru
     }
     destroy_table(struct_declarations);
     // cleanup();
-    ts_query_cursor_delete(cursor);
-    ts_query_delete(query);
+    delete_query_context(&context);
 }
 
 
@@ -462,25 +462,16 @@ TSNode find_child_node_of_type(TSNode node, const char *type)
 TSNode find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
 { 
     const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct";
-    TSQueryError error_type; u32 error_offset; 
-    TSQuery *query = ts_query_new( 
-        tree_sitter_c(), 
-        query_string,
-        strlen(query_string), 
-        &error_offset, 
-        &error_type 
-    );
-    TSQueryCursor *cursor = ts_query_cursor_new(); 
-    ts_query_cursor_exec(cursor, query, root_node); 
+    Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
     TSNode result = {0}; 
 
-    while (ts_query_cursor_next_match(cursor, &match)) { 
+    while (ts_query_cursor_next_match(context.cursor, &match)) { 
         TSNode name_node = {0}; 
         TSNode struct_node = {0}; 
         for (u32 i = 0; i < match.capture_count; i++) { 
              u32 length;
-             const char *cap = ts_query_capture_name_for_id( query, match.captures[i].index, &length );
+             const char *cap = ts_query_capture_name_for_id( context.query, match.captures[i].index, &length );
              if (strcmp(cap, "name") == 0) name_node = match.captures[i].node;
              else if (strcmp(cap, "struct") == 0) struct_node = match.captures[i].node; 
         }
@@ -498,8 +489,7 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
     if(!ts_node_is_null(result)) {
         printf("Node is not null\n");
     }
-    ts_query_cursor_delete(cursor); 
-    ts_query_delete(query); 
+    delete_query_context(&context); 
     return result; 
 }
 // Source - https://stackoverflow.com/a
@@ -549,29 +539,15 @@ void change_node_name_in_program(Node_Type type, const char *node_name,const cha
     }
     
     TSNode root_node = ts_tree_root_node(info->tree);
-    u32 error_offset;
-    TSQueryError error;
-    TSQuery *query = ts_query_new(
-        tree_sitter_c(),
-        query_string,
-        strlen(query_string),
-        &error_offset,
-        &error
-    );
-    if(!query) {
-        fprintf(stderr, 
-        "Error creating query ");
-    }
+    Query_Context context = create_query_context(query_string,root_node);
 
-    TSQueryCursor *cursor = ts_query_cursor_new(); 
-    ts_query_cursor_exec(cursor, query, root_node); 
     EditSpan nodes[MAX_STRUCT_DECLARATIONS];
     int count = 0;
     TSQueryMatch match;
-    while(ts_query_cursor_next_match(cursor,&match)){
+    while(ts_query_cursor_next_match(context.cursor,&match)){
         for(u32 i = 0; i < match.capture_count; i++) {
             u32 length;
-            const char *cap = ts_query_capture_name_for_id(query,match.captures[i].index,&length);
+            const char *cap = ts_query_capture_name_for_id(context.query,match.captures[i].index,&length);
             if(strcmp(cap,"name_node")==0){
                 TSNode named_node = match.captures[i].node;
                 u32 start_byte, end_byte, slice_size;
@@ -585,8 +561,7 @@ void change_node_name_in_program(Node_Type type, const char *node_name,const cha
             }
         }
     }
-    ts_query_cursor_delete(cursor);
-    ts_query_delete(query);
+    delete_query_context(&context);
 
     if(count == 0) return;
 
@@ -703,34 +678,18 @@ static TSNode find_node_with_name(
         break;
     }
      
-    u32 error_offset;
-    TSQueryError error_type;
-
-    TSQuery *query = ts_query_new(
-        tree_sitter_c(),
-        query_string,
-        strlen(query_string),
-        &error_offset,
-        &error_type
-    );
-
-    if(!query) {
-        query_error(query_string,error_type,error_offset);
-    }
-    TSQueryCursor *cursor = ts_query_cursor_new();
-    ts_query_cursor_exec(cursor,query,root_node);
-
+    Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
     TSNode result = {0};
 
-    while(ts_query_cursor_next_match(cursor,&match)) {
+    while(ts_query_cursor_next_match(context.cursor,&match)) {
         TSNode name_node = {0};
         TSNode parent_node = {0};
 
         for(u32 i = 0; i < match.capture_count; ++i) {
             u32 length;
             const char *cap = ts_query_capture_name_for_id(
-                query,
+                context.query,
                 match.captures[i].index,
                 &length 
             );
@@ -758,8 +717,7 @@ static TSNode find_node_with_name(
             }
         }
     }
-    ts_query_cursor_delete(cursor);
-    ts_query_delete(query);
+    delete_query_context(&context);
     return result;
 }
 
