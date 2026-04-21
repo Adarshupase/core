@@ -9,6 +9,7 @@
 #define TOTAL_CORE_COMMANDS 2
 
 static Hash_Table *command_table = NULL;
+static int command_counter = 0;
 
 static int change_struct_name_handler(int argc, char **argv, void *info)
 {
@@ -33,21 +34,66 @@ static int change_struct_field_handler(int argc, char **argv, void *info)
     change_struct_field(struct_name, field_from, field_to, tree_info);
     return 0;
 }
+static int change_function_name_handler (int argc, char **argv, void *info) 
+{
+  (void) argc;
+  const char *from = argv[0];
+  const char *to = argv[1];
+  TSTreeInfo *tree_info = (TSTreeInfo *) info;
+  change_function_name(from, to, tree_info);
+  return 0;
+}
 
+static int change_variable_name_in_function_handler(int argc, char **argv, void *info)
+{
+  (void) argc;
+  const char *function_name = argv[0];
+  const char *from = argv[1];
+  const char *to = argv[2];
+
+  TSTreeInfo *tree_info = (TSTreeInfo *) info;
+  change_variable_in_function(function_name, from, to, tree_info);
+  return 0;
+}
 
 void initialize_commands()
 {
     if(command_table) return;
     command_table = create_table(20);
-    Command *change_struct_field_command = malloc(sizeof(*change_struct_field_command));
+
+	Command *change_struct_field_command = (Command *)malloc(sizeof(*change_struct_field_command));
+	change_struct_field_command->command_id = command_counter++;
     change_struct_field_command->argument_count = 3;
     change_struct_field_command->command_handler = change_struct_field_handler;
     insert_into_table(command_table,"change_struct_field",change_struct_field_command);
-    Command *change_struct_name_command = malloc(sizeof(*change_struct_name_command));
+
+	Command *change_struct_name_command = (Command *)malloc(sizeof(*change_struct_name_command));
+	change_struct_name_command->command_id = command_counter++;
     change_struct_name_command->argument_count = 2;
     change_struct_name_command->command_handler = change_struct_name_handler;
     insert_into_table(command_table,"change_struct_name",change_struct_name_command);
 
+	Command *change_function_name_command = (Command *) malloc (sizeof (*change_function_name_handler));
+	change_function_name_command->command_id = command_counter++;
+	change_function_name_command->argument_count = 2;
+	change_function_name_command->command_handler = change_function_name_handler;
+	insert_into_table(command_table, "change_function_name", change_function_name_command);
+
+	Command *change_variable_in_function_command = (Command *) malloc (sizeof (*change_variable_in_function_command));
+	change_variable_in_function_command->command_id = command_counter++;
+	change_variable_in_function_command->argument_count = 3;
+	change_variable_in_function_command->command_handler = change_variable_name_in_function_handler;
+	insert_into_table(command_table, "change_variable_name_in_function", change_variable_in_function_command);
+	
+
+}
+
+int get_command_id (const char *command_name)
+{
+  Command *command = (Command *) get_from_table_or_null(command_table, command_name);
+  if (!command)
+	return -1;
+  return command->command_id;
 }
 void print_commands(Core_Command *commands, int total) 
 {
@@ -68,7 +114,7 @@ void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *in
 {
     for(int i = 0; i < total_commands; i++) {
         // COMMAND_TYPE command = search_for_command(commands[i].command, commands[i].number_of_arguments);
-        Command *command = get_from_table_or_null(command_table,commands[i].command);
+	  Command *command = (Command *)get_from_table_or_null(command_table,commands[i].command);
         if(!command) {
             fprintf(stderr, "Unknown command: %s\n",commands[i].command);
             exit(EXIT_FAILURE);

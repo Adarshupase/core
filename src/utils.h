@@ -1,13 +1,22 @@
 #ifndef __UTILS_H
 #define __UTILS_H
 #define INITIAL_TABLE_SIZE 1000
+#define INITIAL_STACK_SIZE 20
 #include <stdio.h>
 
-
+// this should have a capacity but we will look in the future.  
 typedef struct {
     char *string;
     size_t size;
 } String_Builder;
+
+typedef struct stack_s
+{
+  int *items;
+  size_t size;
+  size_t capacity;
+} Stack;
+
 
 
 /*
@@ -30,11 +39,18 @@ now if something is present at index 43 while(not_empty(hash_table[index]))index
 
 
 
-
+/* String_Builder specific functions */
 void sb_append(String_Builder *sb, const char *string) ;
 void sb_append_till(String_Builder *sb, const char *string, size_t length) ;
 String_Builder sb_init() ;
 void sb_free(String_Builder *sb);
+
+/* Stack specific functions */
+void push(Stack *stack, int val);
+void pop(Stack *stack);
+int top(Stack *stack);
+
+ 
 char *read_entire_file(const char *file_path);
 void pretty_print_tree(const char *string);
 void write_modified_string_to_file(const char *file_name, const char *source_string) ;

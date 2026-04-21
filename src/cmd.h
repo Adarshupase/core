@@ -5,11 +5,13 @@
 
 
 typedef struct {
-    int argument_count;
-    int (*command_handler)(int argc, char **argv, void *info);
+  int command_id;
+  int argument_count;
+  int (*command_handler)(int argc, char **argv, void *info);
 } Command;
 
 typedef struct {
+    
     char *command;
     char **args;
     int number_of_arguments;

@@ -36,6 +36,8 @@ void print_all_nodes_for_query(const char *query_string, TSNode node, const char
 
 }
 
+
+
 int main(int argc, char *argv[]) 
 {
     TSParser *parser = ts_parser_new();
@@ -157,7 +159,7 @@ int main(int argc, char *argv[])
         }
         free_commands(commands,total_commands);
     }
-    change_function_name("add","Subtract",&info);
+    
     if(argc > 1) {
             const char *file_name = argv[1];
             write_modified_string_to_file(file_name,info.source_code);

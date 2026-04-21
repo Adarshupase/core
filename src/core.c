@@ -36,6 +36,7 @@ typedef enum {
     STRUCT_DEFINITION,
     FUNCTION_CALL,
     STRUCT_DECLARATION,
+	LOCAL_VARIABLE,
 } Node_Type;
 
 typedef struct {
@@ -238,7 +239,7 @@ void traverse_and_debug(TSNode node, int nest, const char *source )
         traverse_and_debug(child,nest + 1, source);
     }
 }
-// debug_tree prints tree nodes with their names so you can verify if the tree has indeed changed
+// debug_tree prints tree nodes with their names so you can verify if the tree has indeed d
 // after editing the tree 
 void debug_tree(TSNode root_node, const char *source) 
 {
@@ -516,7 +517,7 @@ void change_name_in_struct_declaration(
 // doesn't work
 //@TODO()
 
-void change_node_name_in_program(Node_Type type, const char *node_name,const char *to, TSTreeInfo *info,char *modified_source)
+static void change_node_name_in_program(Node_Type type, const char *node_name,const char *to, TSTreeInfo *info,TSNode root_node, char *modified_source)
 {
     // TSTree *tree1 = get_new_tree(info,modified_source);// create a new tree 
     // ts_tree_delete(info->tree); // delete the old tree 
@@ -525,20 +526,26 @@ void change_node_name_in_program(Node_Type type, const char *node_name,const cha
     // TSNode new_root = ts_tree_root_node(info->tree); // get the new root 
     const char *query_string ;
     switch(type){
-        case FUNCTION_CALL:
-        {
-            query_string = "(call_expression function: (identifier) @name_node)";
-        }
-        break;
-        case STRUCT_DECLARATION:
-        {
-            query_string = "(struct_specifier name: (type_identifier) @name_node) declarator: (identifier)";
-        }
-        break;
+
+		case FUNCTION_CALL:
+    	    {
+    	        query_string = "(call_expression function: (identifier) @name_node)";
+    	    } break;
+		
+		case STRUCT_DECLARATION:
+    	    {
+    	        query_string = "(struct_specifier name: (type_identifier) @name_node) declarator: (identifier)";
+    	    }break;
+		
+		case LOCAL_VARIABLE:
+		    {
+			  query_string = "(identifier) @name_node";
+		    } break;
+		
 
     }
     
-    TSNode root_node = ts_tree_root_node(info->tree);
+	//  TSNode root_node = ts_tree_root_node(info->tree);
     Query_Context context = create_query_context(query_string,root_node);
 
     EditSpan nodes[MAX_STRUCT_DECLARATIONS];
@@ -636,7 +643,8 @@ void change_struct_name(const char *struct_name,
     char *modified_source = malloc(strlen(info->source_code) + 1);
     strcpy(modified_source, info->source_code);
     change_node_name_in_declaration(STRUCT_DECLARATION,&modified_source, struct_node,to,info);
-    change_node_name_in_program(STRUCT_DECLARATION,struct_name,to,info,modified_source);
+	TSNode current_root = ts_tree_root_node(info->tree);
+    change_node_name_in_program(STRUCT_DECLARATION,struct_name,to,info,current_root, modified_source);
 }
 
 
@@ -681,7 +689,7 @@ static TSNode find_node_with_name(
     Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
     TSNode result = {0};
-
+	TSNode saved = {0};
     while(ts_query_cursor_next_match(context.cursor,&match)) {
         TSNode name_node = {0};
         TSNode parent_node = {0};
@@ -694,7 +702,10 @@ static TSNode find_node_with_name(
                 &length 
             );
             if(strcmp(cap,"decl") == 0) {
+			  
                 TSNode decl_node = match.captures[i].node;
+				saved = decl_node;
+				
                 TSNode maybe_named_node = find_child_node_of_type(decl_node,child_node);
 
                 if(!ts_node_is_null(maybe_named_node)){
@@ -712,7 +723,7 @@ static TSNode find_node_with_name(
             TS_NODE_SLICE(name_node,start,end,slice_size);
             if (strncmp(source + start, node_name, slice_size) == 0 && node_name[slice_size] == '\0') 
             {
-                result = parent_node;
+                result = saved;
                 break;
             }
         }
@@ -721,6 +732,27 @@ static TSNode find_node_with_name(
     return result;
 }
 
+void change_variable_in_function(const char *function_name, const char *from, const char *to, TSTreeInfo *info)
+{
+  printf("In change_variable_name\n");
+  TSNode root_node = ts_tree_root_node(info->tree);
+  TSNode function_node = find_node_with_name(FUNCTION_DEFINITION, info->source_code, function_name, root_node);
+
+  
+	if(ts_node_is_null(function_node)){
+        fprintf(stderr,
+        "No function with name %s exiting...\n",function_name);
+        exit(EXIT_FAILURE);
+    }
+  
+  char *modified_source = malloc(strlen(info->source_code) + 1);
+  strcpy(modified_source,info->source_code);
+
+  TSNode body = find_child_node_of_type(function_node, "compound_statement");
+  change_node_name_in_program(LOCAL_VARIABLE, from, to, info, body, modified_source);
+  
+	
+}
 
 void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) 
 {
@@ -746,10 +778,11 @@ void change_function_name(const char *function_name, const char *to, TSTreeInfo 
     char *modified_source2 = malloc(strlen(modified_source) + 1);
     strcpy(modified_source2,modified_source);
     change_node_name_in_declaration(FUNCTION_DEFINITION, &modified_source2,definition_node,to,info);
-    root_node = ts_tree_root_node(info->tree);
-    change_node_name_in_program(FUNCTION_CALL,function_name,to,info,modified_source2);
+    
+	TSNode current_root = ts_tree_root_node(info->tree);
+    change_node_name_in_program(FUNCTION_CALL,function_name,to,info, current_root ,modified_source2);
 
-    // change_function_name_in_program
+    // change_function__in_program
 
 }
 

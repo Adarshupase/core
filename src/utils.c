@@ -17,6 +17,7 @@ String_Builder sb_init()
     return sb;
 }
 
+
 void sb_append(String_Builder *sb, const char *string) 
 {
     if(!string) return;
@@ -64,6 +65,53 @@ void sb_free(String_Builder *sb)
     free(sb->string);
     sb->string = NULL;
     sb->size = 0;
+}
+
+void push(Stack *stack, int val)
+{
+  if (stack == NULL) {
+	fprintf(stderr, "error\n");
+	return;
+  }
+  if (stack->items == NULL) {
+	stack->items = (int *) malloc (sizeof (int) * INITIAL_STACK_SIZE);
+	stack->size = 0;
+	stack->capacity = INITIAL_STACK_SIZE;
+  }
+  else if (stack->size >= stack->capacity) {
+	size_t new_capacity = stack->capacity + stack->capacity;
+	
+	stack->items = realloc(stack, sizeof(int) * new_capacity);
+	if (!stack->items)
+	  fprintf(stderr, "error\n");
+	stack->capacity = new_capacity;
+	
+  }
+  
+  
+  stack->items[stack->size++] = val;
+  
+}
+
+void pop(Stack *stack)
+{
+  
+  if (!stack || !stack->items || stack->size == 0) {
+	fprintf(stderr,
+			"Stack is empty\n");
+  }
+
+  stack->size--;
+  
+}
+
+int top(Stack *stack)
+{
+  if (!stack || !stack->items || stack->size == 0) {
+	fprintf(stderr, "Stack is empty\n");
+  }
+
+  return stack->items[stack->size-1];
 }
 
 void pretty_print_tree(const char *string){
