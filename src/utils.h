@@ -3,6 +3,7 @@
 #define INITIAL_TABLE_SIZE 1000
 #define INITIAL_STACK_SIZE 20
 #include <stdio.h>
+#include <stdbool.h>
 
 // this should have a capacity but we will look in the future.  
 typedef struct {
@@ -49,7 +50,8 @@ void sb_free(String_Builder *sb);
 void push(Stack *stack, int val);
 void pop(Stack *stack);
 int top(Stack *stack);
-
+bool is_empty(Stack *stack);
+void clear(Stack *stack);
  
 char *read_entire_file(const char *file_path);
 void pretty_print_tree(const char *string);

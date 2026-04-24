@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include "utils.h"
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -99,6 +100,7 @@ void pop(Stack *stack)
   if (!stack || !stack->items || stack->size == 0) {
 	fprintf(stderr,
 			"Stack is empty\n");
+	return;
   }
 
   stack->size--;
@@ -109,9 +111,24 @@ int top(Stack *stack)
 {
   if (!stack || !stack->items || stack->size == 0) {
 	fprintf(stderr, "Stack is empty\n");
+	return -1;
   }
 
   return stack->items[stack->size-1];
+}
+bool is_empty(Stack *stack)
+{
+  if (!stack || !stack->items || stack->size == 0) return true;
+  return false;
+}
+
+void clear(Stack *stack)
+{
+  if (!stack || !stack->items || stack->size == 0) {
+	fprintf(stderr, "Can't clear the empty stack\n");
+	return;
+  }
+  stack->size = 0;  
 }
 
 void pretty_print_tree(const char *string){

@@ -68,8 +68,10 @@ int main(int argc, char *argv[])
     };
 
     TSNode root_node = ts_tree_root_node(info.tree);
-    printf("--------------------------------DEBUGGING_TREE-----------------------------------");
-    traverse_and_debug(root_node,0,info.source_code);
+	
+	  
+    //printf("--------------------------------DEBUGGING_TREE-----------------------------------");
+    //traverse_and_debug(root_node,0,info.source_code);
     TSTreeCursor tree_cursor = ts_tree_cursor_new(root_node);
     if (VERBOSE) {
         if(CURSOR_MODE){
@@ -80,9 +82,9 @@ int main(int argc, char *argv[])
     }
     
     char *node_string = ts_node_string(root_node);
-    printf("%s\n", node_string);
-    
-    pretty_print_tree(node_string);
+    /* printf("%s\n", node_string); */
+   
+    // pretty_print_tree(node_string);
     
 
     // printf("--------------------------------------------------------------------------------------------------------------\n");
@@ -142,14 +144,14 @@ int main(int argc, char *argv[])
     // print_all_nodes_for_query(string_query, root_node, info.source_code);
     int total_commands;
     
-    Core_Command *commands = parse_commands("core.txt",&total_commands);
+    Parsed_Command *commands = parse_commands("core.txt",&total_commands);
     
     if (commands) {
         print_commands(commands,total_commands);
-        initialize_commands();
+        
         execute_commands(commands,total_commands,&info);
         
-        printf("Reached here");
+        // printf("Reached here\n");
         // change_struct_name("Entity","Component",&info);
         // change_struct_field("Entity","a","good_field",&info);
         // change_struct_name("Entity","Component",&info);

@@ -1,32 +1,25 @@
 #include "cmd.h"
-#include "hash_table.h"
 #include "utils.h"
 #include "core.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#define TOTAL_CORE_COMMANDS 2
 
-static Hash_Table *command_table = NULL;
-static int command_counter = 0;
 
-static int change_struct_name_handler(int argc, char **argv, void *info)
-{
-   (void)argc;
-   const char *struct_name_from = argv[0];
-   const char *struct_name_to = argv[1];
+/*
+undo stack x, y
+redo stack z 
+ */
 
-   TSTreeInfo *tree_info = (TSTreeInfo *) info;
 
-   change_struct_name(struct_name_from, struct_name_to,tree_info);
-   return 0;
-}
-
+static Stack undo_stack = {0};
+static Stack redo_stack = {0};
 
 static int change_struct_field_handler(int argc, char **argv, void *info) 
 {
     (void)argc;
+	
     const char *struct_name = argv[0];
     const char *field_from = argv[1];
     const char *field_to  = argv[2];
@@ -44,7 +37,7 @@ static int change_function_name_handler (int argc, char **argv, void *info)
   return 0;
 }
 
-static int change_variable_name_in_function_handler(int argc, char **argv, void *info)
+static int change_local_var_handler(int argc, char **argv, void *info)
 {
   (void) argc;
   const char *function_name = argv[0];
@@ -56,46 +49,159 @@ static int change_variable_name_in_function_handler(int argc, char **argv, void 
   return 0;
 }
 
-void initialize_commands()
+
+
+
+static int change_struct_name_handler(int argc, char **argv, void *info)
 {
-    if(command_table) return;
-    command_table = create_table(20);
+   (void)argc;
+   const char *struct_name_from = argv[0];
+   const char *struct_name_to = argv[1];
 
-	Command *change_struct_field_command = (Command *)malloc(sizeof(*change_struct_field_command));
-	change_struct_field_command->command_id = command_counter++;
-    change_struct_field_command->argument_count = 3;
-    change_struct_field_command->command_handler = change_struct_field_handler;
-    insert_into_table(command_table,"change_struct_field",change_struct_field_command);
+   TSTreeInfo *tree_info = (TSTreeInfo *) info;
 
-	Command *change_struct_name_command = (Command *)malloc(sizeof(*change_struct_name_command));
-	change_struct_name_command->command_id = command_counter++;
-    change_struct_name_command->argument_count = 2;
-    change_struct_name_command->command_handler = change_struct_name_handler;
-    insert_into_table(command_table,"change_struct_name",change_struct_name_command);
+   change_struct_name(struct_name_from, struct_name_to,tree_info);
+   return 0;
+}
 
-	Command *change_function_name_command = (Command *) malloc (sizeof (*change_function_name_handler));
-	change_function_name_command->command_id = command_counter++;
-	change_function_name_command->argument_count = 2;
-	change_function_name_command->command_handler = change_function_name_handler;
-	insert_into_table(command_table, "change_function_name", change_function_name_command);
+static Command core_commands[] = {
 
-	Command *change_variable_in_function_command = (Command *) malloc (sizeof (*change_variable_in_function_command));
-	change_variable_in_function_command->command_id = command_counter++;
-	change_variable_in_function_command->argument_count = 3;
-	change_variable_in_function_command->command_handler = change_variable_name_in_function_handler;
-	insert_into_table(command_table, "change_variable_name_in_function", change_variable_in_function_command);
+  {CHANGE_STRUCT_FIELD, "change_struct_field",3,change_struct_field_handler},
+  {CHANGE_STRUCT_NAME,"change_struct_name",2,change_struct_name_handler},
+  {CHANGE_FUNCTION_NAME,"change_function_name",2, change_function_name_handler},
+  {CHANGE_LOCAL_VAR, "change_local_var",3, change_local_var_handler}, 
+};
+
+static int get_command_id (const char *name)
+{
+  int total_commands = TOTAL_CORE_COMMANDS;
+
+  if (strcmp(name, "undo")==0) {
+	return UNDO_COMMAND;
+  } else if (strcmp(name, "redo") == 0) {
+	return REDO_COMMAND;
+  }
+  for (int i = 0; i < total_commands; i++) {
+	if (strcmp(core_commands[i].command_name,name)==0) {
+	  return core_commands[i].command_id;
+	}
+  }
+  
+  return -1;
+}
+
+void swap_args(int core_command_id, char **argv)
+{
+  switch(core_command_id) {
 	
-
+	case CHANGE_STRUCT_FIELD:
+	case CHANGE_LOCAL_VAR: {
+	  char *temp = argv[1];
+	  argv[1] = argv[2];
+	  argv[2] = temp;
+	} break;
+	  
+	case CHANGE_STRUCT_NAME:
+	case CHANGE_FUNCTION_NAME:{
+	  char *temp = argv[0];
+	  argv[0] = argv[1];
+	  argv[1] = temp;
+	} break;
+  default:
+	break;
+	}
 }
 
-int get_command_id (const char *command_name)
+static char **copy_args(char *const *args, int arg_count)
 {
-  Command *command = (Command *) get_from_table_or_null(command_table, command_name);
-  if (!command)
-	return -1;
-  return command->command_id;
+  char **new_args = (char **) malloc (sizeof (char *) * arg_count);
+
+  for (int i = 0;i < arg_count; i++) {
+	int len = strlen(args[i]);
+	new_args[i] = malloc (len + 1);
+	memcpy(new_args[i],args[i],len);
+	new_args[i][len] = '\0';
+	
+  }
+  return new_args;
 }
-void print_commands(Core_Command *commands, int total) 
+static void  undo (Parsed_Command *commands, TSTreeInfo *info)
+{
+  
+  Parsed_Command *parsed_command = NULL;
+  
+  if (is_empty(&undo_stack)) {
+	fprintf(stderr, "Nothing to undo\n");
+	return;
+  } 	
+  int top_of_stack = top(&undo_stack);
+  
+  parsed_command = &commands[top_of_stack];
+  
+  int core_command_id = get_command_id(parsed_command->command);
+  
+  Command *core_command = &core_commands[core_command_id];
+  char **temp_args = copy_args(parsed_command->args, parsed_command->number_of_arguments);
+  swap_args(core_command_id, temp_args);
+  
+  int command_status = core_command->command_handler(parsed_command->number_of_arguments, temp_args, (void *)info);
+  
+  if (command_status != 0) {
+    fprintf(stderr,
+  		  "Error: command '%s' failed with code %d\n",
+  		  parsed_command->command,
+  		  command_status
+  		  );
+  } else {
+    // push to redo stack because command succeded
+	printf("UNDO: %s with args: ", parsed_command->command);
+	for (int i = 0; i < parsed_command->number_of_arguments; i++)
+	  printf("%d) %s",i,  temp_args[i]);
+	pop(&undo_stack);
+	push(&redo_stack,top_of_stack);
+	
+	printf(">> Pushed command: %s on to redo stack\n", parsed_command->command);
+  }
+
+  free(temp_args);
+}
+
+static void redo(Parsed_Command *commands, TSTreeInfo *info)
+{
+  
+  Parsed_Command *parsed_command = NULL;
+  
+  if (is_empty(&redo_stack)) {
+	fprintf(stderr, "Nothing to redo\n");
+  } 	
+  int top_of_stack = top(&redo_stack);
+  
+  parsed_command = &commands[top_of_stack];
+  
+  int core_command_id = get_command_id(parsed_command->command);
+  
+  Command *core_command = &core_commands[core_command_id];
+  int command_status = core_command->command_handler(parsed_command->number_of_arguments, parsed_command->args, (void *)info);
+  
+  if (command_status != 0) {
+    fprintf(stderr,
+  		  "Error: command '%s' failed with code %d\n",
+  		  parsed_command->command,
+  		  command_status
+  		  );
+  } else {
+	printf("REDO: %s with args: ", parsed_command->command);
+	for (int i = 0; i < parsed_command->number_of_arguments; i++)
+	  printf("%d) %s",i, parsed_command->args[i]);
+	pop(&redo_stack);
+	push(&undo_stack, top_of_stack);
+	printf(">> Pushed command: %s on to undo stack\n", parsed_command->command);
+  }
+    
+}
+
+
+void print_commands(Parsed_Command *commands, int total) 
 {
     for(int i = 0; i < total; i++) {
         printf("Command: %s\n", commands[i].command);
@@ -105,38 +211,50 @@ void print_commands(Core_Command *commands, int total)
             if(j + 1 < commands[i].number_of_arguments) {
                 printf(", ");
             }
+			
             printf("\n");
         }
     }
 }
 
-void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *info) 
+void execute_commands(Parsed_Command *commands, int total_commands, TSTreeInfo *info) 
 {
     for(int i = 0; i < total_commands; i++) {
-        // COMMAND_TYPE command = search_for_command(commands[i].command, commands[i].number_of_arguments);
-	  Command *command = (Command *)get_from_table_or_null(command_table,commands[i].command);
-        if(!command) {
+	  //search_for_command(commands[i].command, commands[i].number_of_arguments);
+        int command_id  = get_command_id(commands[i].command);
+		
+	  
+        if(command_id == -1) {
             fprintf(stderr, "Unknown command: %s\n",commands[i].command);
             exit(EXIT_FAILURE);
         }
+		if (command_id == UNDO_COMMAND) {
+		  undo(commands,info);
+		  continue;
+		} else if (command_id == REDO_COMMAND){
+		  redo(commands,info);
+		  continue;
+		}
+		
+		Command core_command = core_commands[command_id];
 
-        if(!command->command_handler) {
+        if(!core_command.command_handler) {
             fprintf(stderr,"Error: NO handler registered for command: %s",commands[i].command);
             exit(EXIT_FAILURE);
         }
 
-        if(command->argument_count != commands[i].number_of_arguments){
+        if(core_command.argument_count != commands[i].number_of_arguments){
             fprintf(stderr, "Argument Mismatch for '%s' (expected %d, got %d)\n",
-                commands[i].command,command->argument_count,commands[i].number_of_arguments
+                commands[i].command,core_command.argument_count,commands[i].number_of_arguments
             );
             exit(EXIT_FAILURE);
         }
-        int command_status = command->command_handler(
+        int command_status = core_command.command_handler(
             commands[i].number_of_arguments,
             commands[i].args,
             (void *) info
         );
-
+		
         if(command_status != 0) {
             fprintf(
                 stderr,
@@ -145,13 +263,33 @@ void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *in
                 command_status
             );
             exit(EXIT_FAILURE);
-        }
+        } else {
+		  
+		  printf("Executed the command: %s\n", commands[i].command);
+		  push(&undo_stack,i);
+		  printf("%s is on stack\n", commands[i].command);
+		  if (!is_empty(&redo_stack)) {
+			clear(&redo_stack);
+			printf("Cleared Redo Stack\n");
+		  }
+		  
+			
+		  
+		}
     }
-
-    destroy_table(command_table);
-     
 }
+/* PROBLEM: 
+ * We got hit with a pretty nasty problem here we got to install undo() and redo() command but 
+ * the problem is it's not like normal commands the arguments for this depends on the type of command we need to
+ * undo. it's come to a point where we have to write undo routine for each of the command with the command_handler 
+ * SOL1: 
+ * we can push the Parsed_Command to stack directly which is easier but 
+ * more memory consuming. and have to create a new stack struct for that.
+ * SOL2: 
+ * handle it like any other command argc = number_of_arguments, argv[0] = command_id, argv[1] = total_arguments_for_this_command, 
+ * argv[2] .. The arguments. Exit if the command_id and associated atrributes don't match .
 
+ */
 
 
 
@@ -159,18 +297,18 @@ void execute_commands(Core_Command *commands, int total_commands, TSTreeInfo *in
 // sort of like a get tree info function like we are encapsulating tree info and adding getter and 
 // setter oop all over again 
 // @BEFORE(
-//  1) parse commands into Core_Command[] 
+//  1) parse commands into Parsed_Command[] 
 //  2) pass the parse commands into execute_commands with TreeInfo as an argument 
 //  3) then the execute_commands is responsible for convering strings to enums and then switching. this was simple. 
 // )
 // @AFTER (
-// 1) Parse commands into Core_Command[] as usual.
+// 1) Parse commands into Parsed_Command[] as usual.
 // 2) But now instead of converting them into 3 arrays of enum's we have a hash table 
 // {command_string : Command {number_of_arguments,function_pointer_to_handler}}
 // 3) The same old logic as the so we make the handler require an additional argument which is the TSTreeInfo* which can be supplied by the execute_commands 
 //)
 
-Core_Command *parse_commands(const char *filename, int *total_commands)
+Parsed_Command *parse_commands(const char *filename, int *total_commands)
 {
     *total_commands = 0;
     char *source = read_entire_file(filename);
@@ -189,7 +327,7 @@ Core_Command *parse_commands(const char *filename, int *total_commands)
         free(source);
         return NULL;
     }
-    Core_Command *commands = calloc(capacity, sizeof(Core_Command));
+    Parsed_Command *commands = calloc(capacity, sizeof(Parsed_Command));
 
     char *copy = strdup(source);
     char *save_line;
@@ -244,7 +382,7 @@ Core_Command *parse_commands(const char *filename, int *total_commands)
     *total_commands = count;
     return commands; 
 }
-void free_commands(Core_Command *commands, int total) 
+void free_commands(Parsed_Command *commands, int total) 
 {
     for(int i = 0; i < total; i++) {
         free(commands[i].command);

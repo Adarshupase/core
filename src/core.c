@@ -488,7 +488,7 @@ TSNode find_struct_with_name( const char *source, const char *struct_name, TSNod
         } 
     } 
     if(!ts_node_is_null(result)) {
-        printf("Node is not null\n");
+	  // printf("Node is not null\n");
     }
     delete_query_context(&context); 
     return result; 
@@ -734,7 +734,7 @@ static TSNode find_node_with_name(
 
 void change_variable_in_function(const char *function_name, const char *from, const char *to, TSTreeInfo *info)
 {
-  printf("In change_variable_name\n");
+  //printf("In change_variable_name\n");
   TSNode root_node = ts_tree_root_node(info->tree);
   TSNode function_node = find_node_with_name(FUNCTION_DEFINITION, info->source_code, function_name, root_node);
 
