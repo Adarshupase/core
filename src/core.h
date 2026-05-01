@@ -3,6 +3,40 @@
 #include "utils.h"
 #include <tree_sitter/api.h>
 
+
+#define TS_NODE_SLICE(node, start, end, size) \
+    do {                                     \
+        (start) = ts_node_start_byte(node); \
+        (end)   = ts_node_end_byte(node);   \
+        (size)  = (end) - (start);          \
+    } while (0)
+
+typedef enum {
+    FUNCTION_DECLARATION,
+    FUNCTION_DEFINITION,
+    STRUCT_DEFINITION,
+    FUNCTION_CALL,
+    STRUCT_DECLARATION,
+    LOCAL_VARIABLE,
+} Node_Type;
+
+typedef enum {
+  STRUCT_TYPE,
+  ENUM_TYPE,
+} Data_Type;
+
+typedef struct {
+  TSNode first;
+  TSNode second;
+} TSNode_Pair;
+
+typedef struct {
+    TSQuery *query;
+    TSQueryCursor *cursor;
+} Query_Context;
+
+
+
 typedef uint32_t u32;
 const TSLanguage *tree_sitter_c(void);
 typedef struct {
@@ -40,9 +74,9 @@ void ts_cleanup(TSTreeInfo *info) ;
 
 
 TSNode find_child_node_of_type(TSNode node, const char *type);
-TSNode find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
+TSNode_Pair find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source);
-
+Query_Context create_query_context(const char *query_string, TSNode root_node);
 
 
 #endif // __CORE_H 

@@ -1,6 +1,7 @@
-#define _GNU_SOURCE
+#define _GNU_SOUROBCE
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <ctype.h>
 
@@ -13,12 +14,7 @@ typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
 #define MAX_DEFINITION_SIZE 1000
 #define MAX_STRUCT_DECLARATIONS 1000
-#define TS_NODE_SLICE(node, start, end, size) \
-    do {                                     \
-        (start) = ts_node_start_byte(node); \
-        (end)   = ts_node_end_byte(node);   \
-        (size)  = (end) - (start);          \
-    } while (0)
+
 
 
 // function arguments in comments are referred to as @(arg_name)
@@ -30,19 +26,9 @@ typedef uint32_t u32;
         ....      
   }
 */
-typedef enum {
-    FUNCTION_DECLARATION,
-    FUNCTION_DEFINITION,
-    STRUCT_DEFINITION,
-    FUNCTION_CALL,
-    STRUCT_DECLARATION,
-	LOCAL_VARIABLE,
-} Node_Type;
 
-typedef struct {
-    TSQuery *query;
-    TSQueryCursor *cursor;
-} Query_Context;
+
+
 const char *get_error_type(TSQueryError error_type) 
 {
     switch(error_type) {
@@ -464,38 +450,166 @@ TSNode find_child_node_of_type(TSNode node, const char *type)
 
 
 
-TSNode find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
-{ 
-    const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct";
-    Query_Context context = create_query_context(query_string,root_node);
-    TSQueryMatch match;
-    TSNode result = {0}; 
+// find structs with name
+/* NOTE:
+ *structs can be defined in multiple ways .
+ *Ex:
+ *1) struct Entity {
+ *    char *name;
+ *    int size;
+ *   }
+ *2) typedef struct entity_s {
+ *     char *name;
+ *     int size;
+ *   } entity_t;
+ *3) typedef struct entity_s entity_t;
+ *   struct entity_s {
+ *     char *name;
+ *     int size;
+ *   };
+ */
+// we need to handle it based on what find struct with name returns if it only returns a struct type then we are good if it also has a typedef then we have to
+// apply other logic also note that structs can be anonymous meaning only type name no struct name we have three  cases
+// struct name | type name -> 0|1 , 1|0, 1|1 (0|1 means there is no struct name but there is a type name) 
 
-    while (ts_query_cursor_next_match(context.cursor, &match)) { 
-        TSNode name_node = {0}; 
-        TSNode struct_node = {0}; 
-        for (u32 i = 0; i < match.capture_count; i++) { 
-             u32 length;
-             const char *cap = ts_query_capture_name_for_id( context.query, match.captures[i].index, &length );
-             if (strcmp(cap, "name") == 0) name_node = match.captures[i].node;
-             else if (strcmp(cap, "struct") == 0) struct_node = match.captures[i].node; 
-        }
-        if (!ts_node_is_null(name_node)) 
-        { 
-            u32 start, end , slice_size;
-            TS_NODE_SLICE(name_node, start, end, slice_size);
-            if (strncmp(source + start, struct_name, slice_size) == 0 && struct_name[end - start] == '\0') 
-            { 
-                result = struct_node; 
-                break; 
-            } 
-        } 
-    } 
-    if(!ts_node_is_null(result)) {
-	  // printf("Node is not null\n");
+ // Each capture captures a struct definition
+  // What we want to do here is assign three fields and decide which result to pass based on the Struct_Defition_Type
+  // First we need to assign it based on which capture is it COMPLETE, PSEUDO, TYPEDEF
+  // so for each iteration assign appropriate name_node, struct_node, typedef_node and return it.
+  // if we capture a complete then we need to return both (struct, type)
+  // if we capture a pseudo only typedef will be returned it's upto the handler how he handles the node
+  // if we capture a typedef return the typedef
+
+TSNode_Pair find_typedefs(Data_Type type, bool definition_exist, const char *source, const char *struct_name, TSNode root_node)
+{
+  const char *query_string;
+  if (definition_exist) {
+    query_string = "[(declaration type: (struct_specifier name: (type_identifier) @struct.name ) declarator:(identifier) @struct.type.name)@complete"
+      "(type_definition type: (struct_specifier name: (type_identifier) @struct.name) declarator: (type_identifier) @struct.type.name) @typedef]";
+  } else {
+    query_string = "(type_definition type: (struct_specifier body: (field_declaration_list))  declarator: (type_identifier) @type.name) @pseudo";
+  }
+
+  Query_Context context = create_query_context(query_string, root_node);
+  TSQueryMatch match;
+  TSNode name_node = {0};
+  // TSNode struct_node = {0};
+  TSNode typedef_node = {0};
+  TSNode_Pair pair = {0};
+  typedef enum {
+    COMPLETE,
+    TYPEDEF,
+    PSEUDO,
+  } Struct_Definition_Type;
+  Struct_Definition_Type struct_definition_type;
+  
+  while (ts_query_cursor_next_match(context.cursor, &match)) {
+    for (u32 i = 0; i < match.capture_count; i++) {
+      u32 length;
+      const char *cap = ts_query_capture_name_for_id(context.query, match.captures[i].index, &length);
+      if (strcmp(cap, "struct.name") == 0) name_node = match.captures[i].node;
+      else if (!strcmp(cap, "struct.type.name")) {
+	typedef_node = match.captures[i].node;
+      } else if(!strcmp(cap, "type.name")) {
+	typedef_node = match.captures[i].node;
+      } else if (!strcmp(cap, "complete")) {
+	struct_definition_type = COMPLETE;
+        
+      } else if (!strcmp(cap, "typedef")) {
+	struct_definition_type = TYPEDEF;
+       
+      } else if (!strcmp(cap, "pseudo")) {
+	struct_definition_type = PSEUDO;
+	
+      }
+
+      if (struct_definition_type == COMPLETE || struct_definition_type == TYPEDEF) {
+	u32 start, end, slice_size;
+	TS_NODE_SLICE(name_node, start, end, slice_size);
+	u32 start1, end1, slice_size1;
+	TS_NODE_SLICE(typedef_node, start1, end1, slice_size1);
+	
+	bool struct_name_matched =  (strncmp(source + start, struct_name, slice_size) == 0 && struct_name[end- start] == '\0') ;
+	bool typedef_matched     = (strncmp(source + start1, struct_name, slice_size1) == 0 && struct_name[end1- start1] == '\0') ;
+
+	if (struct_name_matched || typedef_matched) {
+	  pair.first = name_node;
+	  pair.second = typedef_node;
+	  return pair;
+	} 
+      } else if (struct_definition_type == PSEUDO) {
+	u32 start, end, slice_size;
+	TS_NODE_SLICE(typedef_node, start, end, slice_size);
+	if (strncmp(source + start , struct_name, slice_size) == 0 && struct_name[end-start] == '\0') {
+	  pair.first = name_node;
+	  pair.second = typedef_node;
+	  return pair;
+
+	}
+		// we need to decide what to return most of the time it's good to just return the named node
+	// prevents us from recursively finding the child the entire_capture is kinda useless now. 
+      } 
     }
-    delete_query_context(&context); 
-    return result; 
+    
+  }
+
+  return pair;
+  
+      
+}
+
+// we need to refactor the code to distinguish between the
+// find_struct_name and find_typedef
+// so that we can have two different functions
+// change_struct_name and change_typedef_name
+// because we need not to worry one causing the trouble in other's change
+
+
+// we will refactor the code based on problems we encounter after doing the same way we are doing ..
+
+
+TSNode_Pair find_struct_with_name( const char *source, const char *struct_name, TSNode root_node ) 
+{
+  const char *query_string = "(struct_specifier name: (type_identifier) @name ) @struct";
+  Query_Context context = create_query_context(query_string,root_node);
+  TSQueryMatch match;
+  /* TSNode result = {0};  */
+  TSNode_Pair result = {0};
+  while (ts_query_cursor_next_match(context.cursor, &match)) { 
+      TSNode name_node = {0}; 
+      TSNode struct_node = {0}; 
+      for (u32 i = 0; i < match.capture_count; i++) { 
+           u32 length;
+           const char *cap = ts_query_capture_name_for_id( context.query, match.captures[i].index, &length );
+           if (strcmp(cap, "name") == 0) name_node = match.captures[i].node;
+           else if (strcmp(cap, "struct") == 0) struct_node = match.captures[i].node; 
+      }
+      if (!ts_node_is_null(name_node)) 
+      { 
+          u32 start, end , slice_size;
+          TS_NODE_SLICE(name_node, start, end, slice_size);
+          if (strncmp(source + start, struct_name, slice_size) == 0 && struct_name[end - start] == '\0') 
+          { 
+              result.first = struct_node; 
+              break; 
+          } 
+      } 
+  } 
+  if(ts_node_is_null(result.first)) {
+    // this is when we couldn't find a definition we are looking for pseudo definitions only
+    
+    result  = find_typedefs(STRUCT_TYPE, false,source,  struct_name, root_node);
+    
+    // this is for pseudo definitions 
+  } else {
+    // also if we already found a complete struct without typedef but there is typedef struct X x_t ;
+    // for complete struct X we should modify the first defintion so 
+    TSNode_Pair pair = find_typedefs(STRUCT_TYPE, true,source,  struct_name, root_node);
+     result.second = pair.second; // result.first stays the same
+     // we can change the typedef in the chnage_struct_name_in_program
+  }
+  delete_query_context(&context); 
+  return result; 
 }
 // Source - https://stackoverflow.com/a
 // Posted by user529758, modified by community. See post 'Timeline' for change history
@@ -632,22 +746,26 @@ static void change_node_name_in_declaration(
     info->tree = new_tree;
     info->source_code = *modified_ptr;
 }
-
+// NOTE: (Adarsh)
+change this immediately 
 void change_struct_name(const char *struct_name,
                     const char *to,
                     TSTreeInfo *info)
 {
     TSNode root_node = ts_tree_root_node(info->tree);
-    TSNode struct_node = find_struct_with_name(info->source_code,struct_name, root_node);
-    if(ts_node_is_null(struct_node)){
+    TSNode_Pair struct_node = find_struct_with_name(info->source_code,struct_name, root_node);
+    if(ts_node_is_null(struct_node.first) && ts_node_is_null(struct_node.second)){
         fprintf(stderr,
         "No struct with name: %s exiting....\n",struct_name);
         exit(EXIT_FAILURE);
     }
     char *modified_source = malloc(strlen(info->source_code) + 1);
     strcpy(modified_source, info->source_code);
+
+    TSNode current_root = ts_tree_root_node(info->tree);
     change_node_name_in_declaration(STRUCT_DECLARATION,&modified_source, struct_node,to,info);
-	TSNode current_root = ts_tree_root_node(info->tree);
+    current_root = ts_tree_root_node(info->tree);
+    change_node_name_in_declaration(STRUCT_DECLARATION
     change_node_name_in_program(STRUCT_DECLARATION,struct_name,to,info,current_root, modified_source);
 }
 

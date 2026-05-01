@@ -7,7 +7,8 @@
 #include <string.h>
 #include <ctype.h>
 
-#define HASH_TABLE_SIZE 50
+
+#define HASH_TABLE_SIZE 100
 
 
 String_Builder sb_init() 
