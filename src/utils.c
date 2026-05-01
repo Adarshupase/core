@@ -82,9 +82,12 @@ void push(Stack *stack, int val)
   else if (stack->size >= stack->capacity) {
 	size_t new_capacity = stack->capacity + stack->capacity;
 	
-	stack->items = realloc(stack, sizeof(int) * new_capacity);
-	if (!stack->items)
+	stack->items = realloc(stack->items, sizeof(int) * new_capacity);
+	if (!stack->items) {
 	  fprintf(stderr, "error\n");
+	  return;
+	}
+	
 	stack->capacity = new_capacity;
 	
   }

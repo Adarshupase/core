@@ -11,7 +11,7 @@
 
 typedef uint32_t u32;
 #define DEBUG_VERBOSE 1
-#define MAX_DEFINION_SIZE 1000
+#define MAX_DEFINITION_SIZE 1000
 #define MAX_STRUCT_DECLARATIONS 1000
 #define TS_NODE_SLICE(node, start, end, size) \
     do {                                     \
@@ -118,13 +118,17 @@ TSTree *get_new_tree(TSTreeInfo *info, char *modified_source){
 
 
 
+/* finds all the declarations that are declared with struct name
+ * @struct_name
+ */
 
 static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode root_node,const char *modified_source) 
 {
-    const char *query_string = "(declaration type: (struct_specifier name: (type_identifier) @struct_name) declarator: (identifier) @var_name) ";
+    const char *query_string = "(declaration type: (struct_specifier name: (type_identifier) @struct_name) @dummy) @struct_declaration ";
+    // we need to change this to have depth of 1 like struct P *p; 
     Query_Context context = create_query_context(query_string,root_node);
     TSQueryMatch match;
-    Hash_Table *struct_declarations = create_table(MAX_DEFINION_SIZE);
+    Hash_Table *struct_declarations = create_table(MAX_DEFINITION_SIZE);
 
     while(ts_query_cursor_next_match(context.cursor,&match)) {
         TSNode struct_named_node = {0};
@@ -134,8 +138,8 @@ static Hash_Table *find_all_struct_declarations(const char *struct_name, TSNode 
             const char *cap = ts_query_capture_name_for_id(context.query,match.captures[i].index, &length);
             if(strcmp(cap,"struct_name") == 0) {
                 struct_named_node = match.captures[i].node;
-            } else if(strcmp(cap,"var_name")==0) {
-                var_named_node = match.captures[i].node;
+            } else if(strcmp(cap,"struct_declaration")==0) {
+	      var_named_node = find_child_node_of_type(match.captures[i].node, "identifier");
             }
         }
         if(!ts_node_is_null(struct_named_node)){
