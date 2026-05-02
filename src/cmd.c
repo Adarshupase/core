@@ -27,6 +27,15 @@ static int change_struct_field_handler(int argc, char **argv, void *info)
     change_struct_field(struct_name, field_from, field_to, tree_info);
     return 0;
 }
+static int change_typedef_name_handler(int argc, char **argv, void *info)
+{
+  (void) argc;
+  const char *from = argv[0];
+  const char *to = argv[1];
+  TSTreeInfo *tree_info= (TSTreeInfo *) info;
+  change_typedef_name(from, to, tree_info);
+  return 0;
+}
 static int change_function_name_handler (int argc, char **argv, void *info) 
 {
   (void) argc;
@@ -69,7 +78,8 @@ static Command core_commands[] = {
   {CHANGE_STRUCT_FIELD, "change_struct_field",3,change_struct_field_handler},
   {CHANGE_STRUCT_NAME,"change_struct_name",2,change_struct_name_handler},
   {CHANGE_FUNCTION_NAME,"change_function_name",2, change_function_name_handler},
-  {CHANGE_LOCAL_VAR, "change_local_var",3, change_local_var_handler}, 
+  {CHANGE_LOCAL_VAR, "change_local_var",3, change_local_var_handler},
+  {CHANGE_TYPEDEF_NAME, "change_typedef_name",2, change_typedef_name_handler},
 };
 
 static int get_command_id (const char *name)
@@ -102,6 +112,7 @@ void swap_args(int core_command_id, char **argv)
 	} break;
 	  
 	case CHANGE_STRUCT_NAME:
+        case CHANGE_TYPEDEF_NAME:
 	case CHANGE_FUNCTION_NAME:{
 	  char *temp = argv[0];
 	  argv[0] = argv[1];

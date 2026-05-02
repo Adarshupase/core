@@ -18,6 +18,7 @@ typedef enum {
     FUNCTION_CALL,
     STRUCT_DECLARATION,
     LOCAL_VARIABLE,
+    TYPEDEF_STRUCT_DECLARATION,
 } Node_Type;
 
 typedef enum {
@@ -25,6 +26,33 @@ typedef enum {
   ENUM_TYPE,
 } Data_Type;
 
+
+
+/*  PSEUDO ->
+    typedef struct {
+       int x;
+    } pseudo_t;
+
+    COMPLETE ->
+    typedef struct Complete {
+      int x;
+    } complete_t;
+
+    TYPEDEF ->
+    typedef struct Typedef typedef_t;
+
+    COMMON ->
+    struct Common {
+      int x;
+    };
+ */
+typedef enum {
+  COMPLETE,
+  TYPEDEF,
+  PSEUDO,
+  COMMON, 
+} Struct_Definition_Type;
+// There should be a option for 
 typedef struct {
   TSNode first;
   TSNode second;
@@ -59,6 +87,7 @@ void change_field_in_struct(char **modified_ptr, TSNode node, const char *from,
                              const char *to, TSInputEdit *edit);
 void change_struct_field(const char *struct_name,const char *from,const char *to,TSTreeInfo *info);
 void change_struct_name(const char *struct_name,const char *to,TSTreeInfo *info);
+void change_typedef_name(const char *typedef_name, const char *to, TSTreeInfo *info);
 void change_function_name(const char *function_name, const char *to, TSTreeInfo *info) ;
 void change_variable_in_function(const char *function_name, const char *from, const char *to, TSTreeInfo *info);
 void change_name_in_struct_declaration(
@@ -74,7 +103,7 @@ void ts_cleanup(TSTreeInfo *info) ;
 
 
 TSNode find_child_node_of_type(TSNode node, const char *type);
-TSNode_Pair find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
+TSNode find_struct_with_name(const char *source,const char *struct_name, TSNode root_node);
 TSTree *get_new_tree(TSTreeInfo *info, char *modified_source);
 Query_Context create_query_context(const char *query_string, TSNode root_node);
 
